@@ -1,0 +1,56 @@
+import type { Metadata, Viewport } from "next";
+import { Be_Vietnam_Pro, Oswald } from "next/font/google";
+import "./globals.css";
+import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/components/theme-provider";
+
+const vietnam = Be_Vietnam_Pro({
+  variable: "--font-vietnam",
+  subsets: ["latin", "vietnamese"],
+  weight: ["400", "600", "700", "800"],
+});
+
+const oswald = Oswald({
+  variable: "--font-oswald",
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+});
+
+export const metadata: Metadata = {
+  title: "Đông Không Em? — Quản lý quán cà phê",
+  description: "Hệ thống quản lý đơn hàng, bếp, thu tiền và báo cáo cho quán cà phê Đông Không Em?",
+  applicationName: "Đông Không Em?",
+  authors: [{ name: "Đông Không Em? Coffee & Singing" }],
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f4ecdd" },
+    { media: "(prefers-color-scheme: dark)", color: "#2b1d16" },
+  ],
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <html lang="vi" suppressHydrationWarning>
+      <body
+        className={`${vietnam.variable} ${oswald.variable} font-sans antialiased`}
+      >
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="light"
+          enableSystem
+          disableTransitionOnChange
+        >
+          {children}
+          <Toaster richColors position="top-center" />
+        </ThemeProvider>
+      </body>
+    </html>
+  );
+}

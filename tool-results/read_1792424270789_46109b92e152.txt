@@ -1,0 +1,402 @@
+     1→<!DOCTYPE html>
+     2→<html lang="vi">
+     3→<head>
+     4→<meta charset="UTF-8">
+     5→<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+     6→<title>Đông Không Em? — Quản lý đơn</title>
+     7→<link rel="preconnect" href="https://fonts.googleapis.com">
+     8→<link href="https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@500;600;700&family=Be+Vietnam+Pro:wght@400;600;700;800&display=swap" rel="stylesheet">
+     9→<style>
+    10→:root{--bg:#f4ecdd;--card:#fffbf2;--ink:#2b1d16;--ink2:#8a7563;--red:#b3202c;--red-d:#8a1620;--red-soft:#f9e7e4;--ok:#2f6b3f;--warn:#b45309;--gold:#c9973f;--line:#e6d7c0}
+    11→*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    12→[hidden]{display:none!important}
+    13→body{margin:0;color:var(--ink);font-family:'Be Vietnam Pro',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-size:15px;background:var(--bg);background-image:radial-gradient(rgba(179,32,44,.05) 1.2px,transparent 1.3px);background-size:20px 20px}
+    14→button{font-family:inherit}
+    15→input{font-family:inherit;font-size:15px;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);width:100%}
+    16→input:focus{outline:none;border-color:var(--red);box-shadow:0 0 0 3px var(--red-soft)}
+    17→input.err{border-color:var(--red);background:var(--red-soft)}
+    18→input:disabled{background:#f1e9da;color:var(--ink2)}
+    19→label{font-size:11px;color:var(--ink2);font-weight:700;text-transform:uppercase;letter-spacing:.8px;display:block;margin:12px 0 4px}
+    20→.hint{font-size:11px;color:var(--ink2);display:block;margin-top:8px}
+    21→#errbar{position:fixed;top:0;left:0;right:0;background:var(--red);color:#fff;padding:10px 14px;font-size:13px;z-index:99;white-space:pre-wrap}
+    22→.warnbox{background:#fdf3e0;border:1.5px dashed var(--gold);color:#8a5a12;padding:9px 11px;border-radius:10px;font-size:12px;margin-bottom:10px}
+    23→.btn{border:0;border-radius:11px;padding:10px 14px;font-weight:600;font-size:13.5px;font-family:'Oswald','Arial Narrow',sans-serif;letter-spacing:.6px;text-transform:uppercase;cursor:pointer}
+    24→.btn:active{transform:translateY(1.5px)}
+    25→.btn-primary{background:var(--red);color:#fff;box-shadow:0 3px 0 var(--red-d)}
+    26→.btn-primary:active{box-shadow:0 1px 0 var(--red-d)}
+    27→.btn-ok{background:var(--ok);color:#fff;box-shadow:0 3px 0 #1f4d2c}
+    28→.btn-ok:active{box-shadow:0 1px 0 #1f4d2c}
+    29→.btn-danger-ghost{background:var(--red-soft);color:var(--red)}
+    30→.btn-big{width:100%;padding:14px;font-size:16px}
+    31→.icon-btn{border:1.5px solid var(--line);background:var(--card);border-radius:10px;width:36px;height:36px;cursor:pointer;font-size:15px}
+    32→.link-btn{border:0;background:none;color:var(--ink2);text-decoration:underline;font-size:12px;cursor:pointer;margin-top:12px}
+    33→.chip{border:1.5px solid var(--line);background:#fff;border-radius:999px;padding:5px 11px;font-size:12px;cursor:pointer;color:var(--ink2)}
+    34→.chip.on{background:var(--red);border-color:var(--red);color:#fff;font-weight:600}
+    35→.cloud-dot{width:9px;height:9px;border-radius:50%;background:#c9c2b5;display:inline-block}
+    36→.cloud-dot.ok{background:#2f6b3f}
+    37→.cloud-dot.pend{background:#c9973f}
+    38→.brand-full,.brand-prev,.brand-stamp{display:flex;justify-content:center;align-items:center;flex-direction:column}
+    39→.brand-full img,.brand-full svg{max-width:210px;max-height:150px;width:auto}
+    40→.brand-head{flex:none;display:flex;align-items:center}
+    41→.brand-head img,.brand-head svg{height:36px;width:auto;border-radius:8px}
+    42→.brand-stamp{border:2px dashed var(--red);border-radius:14px;padding:16px 14px 12px;background:#fff9ec;margin-top:8px}
+    43→.brand-stamp img,.brand-stamp svg{max-width:180px;width:auto}
+    44→.stamp-cap{font-family:'Oswald',sans-serif;font-size:10px;letter-spacing:3px;color:var(--ink2);text-transform:uppercase;margin-top:4px}
+    45→.stamp-date{font-size:11px;color:var(--ink2);margin-top:2px}
+    46→.brand-prev img,.brand-prev svg{max-width:160px}
+    47→.lock-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;position:relative;overflow:hidden}
+    48→.flake{position:absolute;color:var(--red);opacity:.13;pointer-events:none;animation:drift 7s ease-in-out infinite alternate}
+    49→@keyframes drift{from{transform:translateY(-8px) rotate(-8deg)}to{transform:translateY(8px) rotate(8deg)}}
+    50→.lock-card{background:var(--card);border:1.5px solid var(--line);border-radius:22px;padding:26px 24px;max-width:390px;width:100%;box-shadow:0 14px 44px rgba(90,50,20,.13);position:relative;z-index:2}
+    51→.lock-card::before{content:'';position:absolute;top:0;left:24px;right:24px;height:5px;border-radius:0 0 6px 6px;background:var(--red)}
+    52→.lock-logo{padding:6px 0 2px}
+    53→.lock-card h1{font-family:'Oswald',sans-serif;font-size:24px;text-align:center;margin:8px 0 2px;text-transform:uppercase;letter-spacing:1px}
+    54→.lock-sub{text-align:center;color:var(--ink2);font-size:12px;margin:0 0 14px;letter-spacing:.4px}
+    55→.lock-card .btn-big{margin-top:18px}
+    56→.lock-foot{text-align:center;font-family:'Oswald',sans-serif;font-size:10px;letter-spacing:4px;color:var(--ink2);margin-top:16px;text-transform:uppercase}
+    57→.cloud-note{text-align:center;font-size:11px;color:var(--ink2);margin-top:10px}
+    58→.role-note{display:flex;align-items:center;gap:8px;background:var(--red-soft);border:1.5px solid var(--red);border-radius:10px;padding:8px 11px;font-size:12px;color:var(--red-d);font-weight:600;margin-top:12px}
+    59→header{position:sticky;top:0;background:rgba(244,236,221,.94);backdrop-filter:blur(6px);z-index:30;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 14px;border-bottom:2.5px solid var(--red)}
+    60→.h-left{display:flex;flex-direction:column;min-width:0}
+    61→.h-left b{font-family:'Oswald',sans-serif;font-size:16px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    62→.h-day{font-size:11px;color:var(--ink2)}
+    63→.h-right{display:flex;align-items:center;gap:8px}
+    64→.me-chip{background:var(--red-soft);border:1.5px solid var(--red);color:var(--red);padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
+    65→.view{padding:16px 14px 175px;max-width:720px;margin:0 auto}
+    66→#v-kitchen{max-width:1100px}
+    67→.sec-title{font-family:'Oswald',sans-serif;font-size:20px;margin:6px 0 14px;text-transform:uppercase;letter-spacing:.8px;display:flex;align-items:center;gap:8px}
+    68→.sec-title::after{content:'';flex:1;height:2px;background:var(--line);border-radius:2px}
+    69→.card{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:15px;margin-bottom:14px;box-shadow:0 2px 0 rgba(120,80,40,.05)}
+    70→.card h3{font-family:'Oswald',sans-serif;margin:0 0 10px;font-size:14px;text-transform:uppercase;letter-spacing:1px;color:var(--red-d)}
+    71→.empty{color:var(--ink2);text-align:center;padding:26px 12px;font-size:14px;background:#fff9;border:1.5px dashed var(--line);border-radius:12px}
+    72→.menu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+    73→.m-item{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:14px 8px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;min-height:106px;justify-content:center;box-shadow:0 2px 0 rgba(120,80,40,.06)}
+    74→.m-item:active{transform:scale(.95);border-color:var(--red)}
+    75→.m-ic{font-size:30px}
+    76→.m-name{font-weight:600;font-size:13.5px;text-align:center}
+    77→.m-price{font-family:'Oswald',sans-serif;color:var(--red);font-weight:600;font-size:14px;letter-spacing:.5px}
+    78→.k-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    79→@media(max-width:560px){.k-columns{grid-template-columns:1fr}}
+    80→.k-col-h{display:flex;align-items:center;font-family:'Oswald',sans-serif;font-weight:600;letter-spacing:.8px;text-transform:uppercase;font-size:14px;padding:9px 12px;border-radius:11px;margin-bottom:10px;background:var(--card);border:1.5px solid var(--line)}
+    81→.k-col-h::before{content:'';width:9px;height:9px;border:2.5px solid currentColor;border-radius:50%;margin-right:9px;opacity:.55}
+    82→.k-col-h.wait{color:var(--warn)}
+    83→.k-col-h.making{color:var(--red)}
+    84→.cnt{background:var(--red);color:#fff;border-radius:999px;padding:1px 9px;font-size:12px;margin-left:auto;font-weight:700}
+    85→.o-card{background:#fff;border:1.5px solid var(--line);border-radius:13px;padding:12px 12px 10px;margin-bottom:12px;position:relative;box-shadow:0 2px 0 rgba(120,80,40,.06)}
+    86→.o-card.making{border-color:var(--red)}
+    87→.o-card.late{border:2px solid var(--red)}
+    88→.o-top{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink2);margin-bottom:6px;flex-wrap:wrap}
+    89→.o-code{font-family:'Oswald',sans-serif;background:var(--red);color:#fff;padding:2px 9px;border-radius:8px;font-size:14px;font-weight:600;letter-spacing:1.5px}
+    90→.o-type{background:#f4ecdd;padding:2px 9px;border-radius:999px;font-weight:600}
+    91→.o-time{margin-left:auto;font-variant-numeric:tabular-nums}
+    92→.o-cus{font-weight:700;font-size:14.5px;margin-bottom:6px}
+    93→.o-items{margin:0 0 6px;padding-left:18px;font-size:15px;line-height:1.55}
+    94→.o-notes{color:var(--red);font-weight:700}
+    95→.o-total{font-family:'Oswald',sans-serif;font-weight:600;color:var(--red);font-size:16px;letter-spacing:.5px;margin-bottom:4px}
+    96→.o-sum{font-size:12.5px;color:var(--ink2);margin-bottom:4px}
+    97→.o-actions{display:flex;gap:8px;border-top:2px dashed var(--line);margin-top:8px;padding-top:10px;position:relative}
+    98→.o-actions::before,.o-actions::after{content:'';position:absolute;top:-8px;width:14px;height:14px;border-radius:50%;background:var(--bg);border:1.5px solid var(--line)}
+    99→.o-actions::before{left:-9px;border-top-color:transparent;border-left-color:transparent;transform:rotate(45deg)}
+   100→.o-actions::after{right:-9px;border-top-color:transparent;border-right-color:transparent;transform:rotate(-45deg)}
+   101→.o-actions .btn{flex:1;padding:9px 6px;font-size:12.5px}
+   102→.pay-sum{background:var(--red);color:#fff;padding:13px 16px;border-radius:13px;margin-bottom:13px;font-size:15px;box-shadow:0 3px 0 var(--red-d)}
+   103→.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+   104→.stat{background:var(--card);border:1.5px solid var(--line);border-radius:13px;padding:12px;position:relative;overflow:hidden}
+   105→.stat::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:var(--red)}
+   106→.stat small{color:var(--ink2);font-size:11px;text-transform:uppercase;letter-spacing:.6px;font-weight:700}
+   107→.stat b{display:block;font-family:'Oswald',sans-serif;font-size:19px;font-weight:600;margin-top:3px;letter-spacing:.5px}
+   108→.bar-row{display:grid;grid-template-columns:minmax(90px,auto) 1fr 30px;gap:8px;align-items:center;margin:9px 0;font-size:13px}
+   109→.bar{background:#efe4d0;border-radius:999px;height:11px;overflow:hidden}
+   110→.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--red),#d0453f);border-radius:999px}
+   111→.bar-n{font-family:'Oswald',sans-serif;font-weight:600;text-align:right}
+   112→.psplit{line-height:2.1;font-size:14px}
+   113→.mem-row{display:flex;align-items:center;gap:8px;background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:9px 11px;margin-bottom:8px}
+   114→.mem-row.me{border-color:var(--red);background:#fffdf6}
+   115→.mem-name{font-weight:700;font-size:14px;flex:none;max-width:105px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+   116→.mem-badge{display:inline-block;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:700;letter-spacing:.4px;margin-top:3px;background:#efe4d0;color:var(--ink2)}
+   117→.mem-badge.admin{background:var(--red);color:#fff}
+   118→.mem-badge.pos,.mem-badge.kitchen,.mem-badge.pay{background:var(--red-soft);color:var(--red-d)}
+   119→.mem-info{flex:1;min-width:0;color:var(--ink2);font-size:12px;line-height:1.55}
+   120→.mem-money{font-family:'Oswald',sans-serif;font-weight:600;color:var(--red);flex:none;text-align:right;font-size:15px;letter-spacing:.5px}
+   121→.mem-money small{display:block;color:var(--ink2);font-weight:400;font-size:10.5px;letter-spacing:0}
+   122→.mem-row .x,.mrow .x{border:0;background:var(--red-soft);color:var(--red);border-radius:8px;width:32px;height:32px;flex:none;cursor:pointer}
+   123→.mem-row .edit{border:1.5px solid var(--line);background:#fff;color:var(--ink);border-radius:8px;height:32px;padding:0 10px;font-size:12px;font-weight:700;flex:none;cursor:pointer}
+   124→.you{background:var(--red);color:#fff;border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700}
+   125→.slog{display:flex;gap:10px;font-size:13px;padding:7px 2px;border-bottom:1.5px dashed var(--line)}
+   126→.slog:last-child{border-bottom:0}
+   127→.slog time{color:var(--ink2);flex:none;font-variant-numeric:tabular-nums}
+   128→.add-row{display:flex;gap:8px}
+   129→.mrow{display:flex;align-items:center;gap:8px;background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:8px 10px;margin-bottom:8px}
+   130→.mrow.off{opacity:.5}
+   131→.m-name-in{flex:1;min-width:0}
+   132→.m-price-in{width:96px;flex:none;text-align:right}
+   133→#cartBar{position:fixed;left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:40;background:var(--red);color:#fff;border-radius:14px;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;box-shadow:0 4px 0 var(--red-d),0 10px 26px rgba(140,20,30,.35)}
+   134→.backdrop{position:fixed;inset:0;background:rgba(43,29,22,.5);z-index:50}
+   135→.sheet{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-radius:20px 20px 0 0;max-height:88vh;display:flex;flex-direction:column;z-index:60;transform:translateY(105%);transition:.25s;box-shadow:0 -10px 34px rgba(0,0,0,.22)}
+   136→.sheet::before{content:'';width:42px;height:5px;border-radius:99px;background:var(--line);position:absolute;top:8px;left:50%;transform:translateX(-50%)}
+   137→.sheet.open{transform:none}
+   138→.sheet-head{display:flex;align-items:center;justify-content:space-between;padding:18px 16px 12px;border-bottom:2px dashed var(--line);font-family:'Oswald',sans-serif;font-size:17px;text-transform:uppercase;letter-spacing:1px}
+   139→.sheet-body{overflow-y:auto;padding:4px 16px 12px;flex:1}
+   140→.sheet-foot{padding:12px 16px calc(14px + env(safe-area-inset-bottom));border-top:2px dashed var(--line)}
+   141→.sheet-total{display:flex;justify-content:space-between;font-size:14px;margin-bottom:10px;align-items:baseline}
+   142→.sheet-total b{font-family:'Oswald',sans-serif;font-size:20px;color:var(--red);letter-spacing:.5px}
+   143→.seg{display:flex;background:#efe4d0;border-radius:11px;padding:3px;gap:3px;margin-top:8px}
+   144→.seg button{flex:1;border:0;background:none;padding:8px;border-radius:9px;font-weight:600;font-size:13px;cursor:pointer;color:var(--ink2)}
+   145→.seg button.on{background:#fff;color:var(--red);box-shadow:0 1px 4px rgba(0,0,0,.08)}
+   146→.c-row{border-bottom:1.5px dashed var(--line);padding:10px 0}
+   147→.c-row:last-child{border-bottom:0}
+   148→.c-main{display:flex;align-items:center;gap:8px}
+   149→.c-ic{font-size:22px}
+   150→.c-info{flex:1;min-width:0}
+   151→.c-info small{color:var(--ink2)}
+   152→.c-line{font-family:'Oswald',sans-serif;white-space:nowrap}
+   153→.qty{display:flex;align-items:center;gap:8px}
+   154→.qty button{width:32px;height:32px;border-radius:9px;border:1.5px solid var(--line);background:#fff;font-size:18px;font-weight:700;cursor:pointer;color:var(--red)}
+   155→.c-notes{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+   156→.tabbar{position:fixed;left:0;right:0;bottom:0;display:grid;background:var(--card);border-top:2.5px solid var(--red);padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:45}
+   157→.tabbar button{position:relative;background:none;border:0;font-size:11px;color:var(--ink2);display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 0;border-radius:10px;cursor:pointer;font-weight:600}
+   158→.tabbar button.on{color:var(--red)}
+   159→.tabbar button.on::after{content:'';position:absolute;top:-9px;width:26px;height:3.5px;border-radius:0 0 4px 4px;background:var(--red)}
+   160→.t-ic{font-size:20px}
+   161→.badge{position:absolute;top:0;right:calc(50% - 22px);background:var(--red);color:#fff;border-radius:999px;font-size:10px;padding:0 5px;font-weight:700;border:1.5px solid var(--card)}
+   162→#toast{position:fixed;left:50%;bottom:calc(92px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(10px);background:var(--ink);color:#fff;padding:12px 18px;border-radius:12px;font-size:14.5px;font-weight:600;z-index:80;opacity:0;transition:.25s;max-width:90vw;text-align:center}
+   163→#toast.show{opacity:1;transform:translateX(-50%)}
+   164→</style>
+   165→</head>
+   166→<body>
+   167→
+   168→<div id="errbar" hidden><span id="errmsg"></span></div>
+   169→
+   170→<!-- ===== MÀN HÌNH KHÓA ===== -->
+   171→<div id="lock" class="lock-wrap">
+   172→  <span class="flake" style="top:8%;left:10%;font-size:26px">❄</span>
+   173→  <span class="flake" style="top:16%;right:12%;font-size:20px;animation-delay:1.2s">❄</span>
+   174→  <span class="flake" style="bottom:14%;left:16%;font-size:18px;animation-delay:.6s">❄</span>
+   175→  <span class="flake" style="bottom:20%;right:9%;font-size:24px;animation-delay:1.8s">❄</span>
+   176→  <span class="flake" style="top:44%;left:4%;font-size:15px;animation-delay:2.4s">❄</span>
+   177→  <span class="flake" style="top:52%;right:5%;font-size:15px;animation-delay:.9s">❄</span>
+   178→
+   179→  <div class="lock-card">
+   180→    <div class="lock-logo brand-full" id="brandLock"></div>
+   181→    <h1 id="lockTitle">Quản lý đơn hàng</h1>
+   182→    <p class="lock-sub">Đông Không Em? — dùng chung nhiều thiết bị qua cloud</p>
+   183→
+   184→    <div id="storeWarn" class="warnbox" hidden>
+   185→      ⚠️ Trình duyệt đang CHẶN lưu dữ liệu. Hãy mở trực tiếp bằng Chrome/Safari.
+   186→    </div>
+   187→
+   188→    <div id="firstRun" hidden>
+   189→      <label>Tên quán / nhóm</label>
+   190→      <input id="fCafe" placeholder="VD: Đông Không Em?" value="Đông Không Em?">
+   191→      <label>Đặt mã PIN Admin (4 chữ số)</label>
+   192→      <input id="fPin" type="tel" maxlength="4" inputmode="numeric" placeholder="••••">
+   193→      <label>Tên bạn (Quản trị viên)</label>
+   194→      <input id="fMe" placeholder="VD: An">
+   195→      <button class="btn btn-primary btn-big" id="btnCreate">Tạo nhóm &amp; vào làm Admin</button>
+   196→      <div class="role-note">👑 Bạn là Admin duy nhất — truy cập mọi mục. Nhân viên do bạn tạo, mỗi người chỉ vào 1 mục.</div>
+   197→    </div>
+   198→
+   199→    <div id="login" hidden>
+   200→      <label>Tên của bạn</label>
+   201→      <input id="lMe" placeholder="Tên đã được Admin đăng ký">
+   202→      <label>Mã PIN (4 chữ số)</label>
+   203→      <input id="lPin" type="tel" maxlength="4" inputmode="numeric" placeholder="••••">
+   204→      <button class="btn btn-primary btn-big" id="btnEnter">Vào làm việc</button>
+   205→      <div class="hint" style="text-align:center">👑 Admin: mã PIN quản trị · Nhân viên: mã do Admin cấp</div>
+   206→      <div style="text-align:center"><button class="link-btn" id="btnResetAll">Xóa dữ liệu MÁY NÀY, bắt đầu lại</button></div>
+   207→    </div>
+   208→
+   209→    <div class="cloud-note" id="cloudNote">☁️ Đang kết nối cloud…</div>
+   210→    <div class="lock-foot">Coffee &amp; Singing ☕🎶</div>
+   211→  </div>
+   212→</div>
+   213→
+   214→<!-- ===== APP ===== -->
+   215→<div id="app" hidden>
+   216→  <header>
+   217→    <div class="brand-head" id="brandHead"></div>
+   218→    <div class="h-left"><b id="hCafe"></b><span class="h-day" id="hDay"></span></div>
+   219→    <div class="h-right">
+   220→      <span class="cloud-dot" id="cloudDot" title="cloud"></span>
+   221→      <span class="me-chip" id="hMe"></span>
+   222→      <button class="icon-btn" id="btnLock" title="Đăng xuất / Khóa">🔒</button>
+   223→    </div>
+   224→  </header>
+   225→
+   226→  <main>
+   227→    <section id="v-pos" class="view" hidden>
+   228→      <h2 class="sec-title">🧾 Chọn món</h2>
+   229→      <div id="menuGrid" class="menu-grid"></div>
+   230→    </section>
+   231→
+   232→    <section id="v-kitchen" class="view" hidden>
+   233→      <div class="k-columns">
+   234→        <div><div class="k-col-h wait">⏳ Chờ pha <span class="cnt" id="cntWait"></span></div><div id="colWait"></div></div>
+   235→        <div><div class="k-col-h making">🔥 Đang pha <span class="cnt" id="cntMaking"></span></div><div id="colMaking"></div></div>
+   236→      </div>
+   237→    </section>
+   238→
+   239→    <section id="v-pay" class="view" hidden>
+   240→      <div class="pay-sum" id="paySummary"></div>
+   241→      <div id="payList"></div>
+   242→    </section>
+   243→
+   244→    <section id="v-report" class="view" hidden>
+   245→      <h2 class="sec-title">📊 Báo cáo hôm nay</h2>
+   246→      <div class="stats" id="stats"></div>
+   247→
+   248→      <div class="card">
+   249→        <h3>👥 Thành viên &amp; phân quyền</h3>
+   250→        <div id="memberStats"></div>
+   251→        <div class="add-row" style="margin-top:12px">
+   252→          <input id="nmName" placeholder="Tên nhân viên" style="flex:1">
+   253→          <input id="nmPass" type="tel" maxlength="4" inputmode="numeric" placeholder="Mã 4 số" style="width:110px;flex:none">
+   254→        </div>
+   255→        <label style="margin-top:10px">Mục nhân viên này được truy cập (chọn 1)</label>
+   256→        <div class="seg" id="segNewView">
+   257→          <button data-v="pos" class="on">🧾 Tạo đơn</button>
+   258→          <button data-v="kitchen">☕ Quầy pha</button>
+   259→          <button data-v="pay">💵 Thu tiền</button>
+   260→        </div>
+   261→        <button class="btn btn-primary btn-big" id="btnAddMember" style="margin-top:10px">+ Thêm nhân viên</button>
+   262→      </div>
+   263→
+   264→      <div class="card"><h3>🔥 Món bán chạy</h3><div id="topItems"></div></div>
+   265→      <div class="card"><h3>💳 Thanh toán</h3><div class="psplit" id="paySplit"></div></div>
+   266→      <div class="card"><h3>🕓 Lịch sử đăng nhập</h3><div id="sessionLog"></div></div>
+   267→
+   268→      <div class="brand-stamp" id="brandStamp">
+   269→        <div class="stamp-cap">Coffee &amp; Singing</div>
+   270→        <div class="stamp-date" id="stampDate"></div>
+   271→      </div>
+   272→    </section>
+   273→
+   274→    <section id="v-menu" class="view" hidden>
+   275→      <h2 class="sec-title">⚙️ Quản lý menu</h2>
+   276→      <div class="card">
+   277→        <div class="add-row">
+   278→          <input id="niIcon" placeholder="☕" maxlength="4" style="width:64px;flex:none;text-align:center">
+   279→          <input id="niName" placeholder="Tên món mới">
+   280→          <input id="niPrice" type="number" inputmode="numeric" placeholder="Giá" style="width:100px;flex:none">
+   281→          <button class="btn btn-primary" id="btnAddItem" style="flex:none">Thêm</button>
+   282→        </div>
+   283→      </div>
+   284→      <div id="menuList"></div>
+   285→
+   286→      <h2 class="sec-title">🎨 Logo quán</h2>
+   287→      <div class="card">
+   288→        <div class="brand-prev" id="brandPrev"></div>
+   289→        <div class="add-row" style="margin-top:12px">
+   290→          <input type="file" id="logoFile" accept="image/*" hidden>
+   291→          <button class="btn btn-primary" id="btnLogoPick" style="flex:1">Tải logo lên</button>
+   292→          <button class="btn btn-danger-ghost" id="btnLogoDel" style="flex:none">Gỡ logo</button>
+   293→        </div>
+   294→        <span class="hint">Logo lưu trên cloud — tải lên 1 lần, mọi thiết bị đều thấy.</span>
+   295→      </div>
+   296→
+   297→      <h2 class="sec-title">🔐 Cài đặt (Admin)</h2>
+   298→      <div class="card">
+   299→        <label>Tên quán</label>
+   300→        <div class="add-row"><input id="setName"><button class="btn" id="btnSaveName" style="flex:none">Lưu</button></div>
+   301→        <label>Mã PIN của Admin</label>
+   302→        <div class="add-row"><input id="setPin" type="tel" maxlength="4" inputmode="numeric" placeholder="4 chữ số"><button class="btn" id="btnSavePin" style="flex:none">Lưu</button></div>
+   303→        <button class="btn btn-danger-ghost" id="btnWipe" style="width:100%;margin-top:14px">Xóa dữ liệu MÁY NÀY (cloud giữ nguyên)</button>
+   304→      </div>
+   305→    </section>
+   306→  </main>
+   307→
+   308→  <div id="cartBar" hidden>
+   309→    <div id="cbInfo"></div>
+   310→    <button class="btn btn-primary" id="btnOpenCart">Xem đơn →</button>
+   311→  </div>
+   312→
+   313→  <nav class="tabbar" id="tabbar"></nav>
+   314→</div>
+   315→
+   316→<div id="backdrop" class="backdrop" hidden></div>
+   317→<div id="sheet" class="sheet">
+   318→  <div class="sheet-head">
+   319→    <b>Đơn mới</b>
+   320→    <div style="display:flex;gap:10px;align-items:center">
+   321→      <button class="link-btn" id="btnClearCart" style="margin:0">Dọn giỏ</button>
+   322→      <button class="icon-btn" id="btnCloseSheet">✕</button>
+   323→    </div>
+   324→  </div>
+   325→  <div class="sheet-body">
+   326→    <label>Khách / Bàn (để trống = khách lẻ)</label>
+   327→    <input id="cName" placeholder="VD: Chị Hồng / Bàn 2">
+   328→    <div class="seg" id="segType">
+   329→      <button data-type="stay" class="on">🏠 Tại chỗ</button>
+   330→      <button data-type="take">🥡 Mang đi</button>
+   331→    </div>
+   332→    <div id="cartItems"></div>
+   333→  </div>
+   334→  <div class="sheet-foot">
+   335→    <div class="sheet-total"><span>Tổng tiền</span><b id="cTotal"></b></div>
+   336→    <button class="btn btn-primary btn-big" id="btnSend">Gửi đơn → Quầy pha</button>
+   337→  </div>
+   338→</div>
+   339→
+   340→<div id="mbackdrop" class="backdrop" hidden></div>
+   341→<div id="msheet" class="sheet">
+   342→  <div class="sheet-head">
+   343→    <b id="mTitle">Phân quyền</b>
+   344→    <button class="icon-btn" id="btnMClose">✕</button>
+   345→  </div>
+   346→  <div class="sheet-body">
+   347→    <label>Tên nhân viên</label>
+   348→    <input id="mNameR" disabled>
+   349→    <label>Đổi mã PIN (để trống = giữ mã cũ)</label>
+   350→    <input id="mPass" type="tel" maxlength="4" inputmode="numeric" placeholder="4 chữ số">
+   351→    <label>Mục được phép truy cập (chọn 1)</label>
+   352→    <div class="seg" id="segView">
+   353→      <button data-v="pos">🧾 Tạo đơn</button>
+   354→      <button data-v="kitchen">☕ Quầy pha</button>
+   355→      <button data-v="pay">💵 Thu tiền</button>
+   356→    </div>
+   357→    <span class="hint" id="mViewMsg"></span>
+   358→  </div>
+   359→  <div class="sheet-foot">
+   360→    <button class="btn btn-primary btn-big" id="btnMSave">Lưu thay đổi</button>
+   361→    <button class="btn btn-danger-ghost btn-big" id="btnMDel" style="margin-top:8px">Xóa thành viên này</button>
+   362→  </div>
+   363→</div>
+   364→
+   365→<div id="toast" hidden></div>
+   366→
+   367→<noscript><div style="position:fixed;top:0;left:0;right:0;background:#b3202c;color:#fff;padding:12px;z-index:99">Trình duyệt đang TẮT JavaScript.</div></noscript>
+   368→
+   369→<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+   370→
+   371→<script>
+   372→function showErr(msg){var b=document.getElementById('errbar');document.getElementById('errmsg').textContent=msg;b.hidden=false}
+   373→window.addEventListener('error',function(e){showErr('Lỗi: '+(e.message||e.type)+(e.lineno?(' (dòng '+e.lineno+')'):''))});
+   374→
+   375→function $(s){return document.querySelector(s)}
+   376→function $$(s){return document.querySelectorAll(s)}
+   377→function on(sel,fn){var el=document.getElementById(sel);if(el){el.onclick=fn}else{showErr('Thiếu phần tử: '+sel)}}
+   378→function fmt(n){return Number(n||0).toLocaleString('vi-VN')+'₫'}
+   379→function esc(s){s=(s==null?'':String(s));return s.replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]})}
+   380→function pad2(n){n=String(n);return n.length<2?'0'+n:n}
+   381→function dstr(t){var d=t?new Date(t):new Date();return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())}
+   382→function fdt(ts){if(!ts)return '—';var d=new Date(ts);return pad2(d.getHours())+':'+pad2(d.getMinutes())+' '+pad2(d.getDate())+'/'+pad2(d.getMonth()+1)}
+   383→function clone(o){return JSON.parse(JSON.stringify(o))}
+   384→function badInput(sel){var el=$(sel);el.classList.add('err');setTimeout(function(){el.classList.remove('err')},1600)}
+   385→
+   386→/* ================= CLOUD (SUPABASE) ================= */
+   387→var SB_URL='https://hwqdgqudptptihtzdhhj.supabase.co';
+   388→var SB_KEY='sb_publishable_lXSVeFhICgVuLy_liqYgyA_4Olhau2z';
+   389→var cloud=(window.supabase&&window.supabase.createClient)?window.supabase.createClient(SB_URL,SB_KEY):null;
+   390→var MY_DEVICE=Math.random().toString(36).slice(2,10);
+   391→var dirtyOrders={},dirtySettings=false,lastPushedSettings=null,cloudOK=false,ch=null;
+   392→var STATUSNAME={new:'chờ pha',making:'đang pha',done:'xong món',paid:'đã thu tiền',canceled:'đã hủy'};
+   393→
+   394→function updateDot(){
+   395→  var d=document.getElementById('cloudDot');if(!d)return;
+   396→  var cn=document.getElementById('cloudNote');
+   397→  if(!cloud){
+   398→    d.className='cloud-dot';
+   399→    if(cn)cn.textContent='⚠️ Không tải được module cloud — đang chạy CHẾ ĐỘ MÁY ĐƠN (offline).';
+   400→    return;
+
+[showing lines 1-400 of 1206; use offset=401 with limit to continue reading]

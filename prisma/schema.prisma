@@ -1,0 +1,118 @@
+// Prisma schema for Đông Không Em? — Café order manager
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Cafe {
+  id          String   @id @default("default")
+  name        String   @default("Đông Không Em?")
+  adminName   String   @default("Admin")
+  pinHash     String?
+  logo        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Staff {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  pinHash     String?
+  view        String   @default("pos") // pos | kitchen | pay
+  lastLogin   DateTime?
+  loginCount  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model MenuItem {
+  id          String   @id @default(cuid())
+  icon        String   @default("☕")
+  name        String
+  price       Int
+  available   Boolean  @default(true)
+  imageUrl    String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Table {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  seats       Int      @default(4)
+  status      String   @default("free") // free | occupied | reserved
+  sortOrder   Int      @default(0)
+}
+
+model Discount {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  kind        String   @default("percent") // percent | amount
+  value       Int
+  active      Boolean  @default(true)
+  note        String?
+  createdAt   DateTime @default(now())
+}
+
+model Order {
+  id          String   @id @default(cuid())
+  code        String   // #01, #02 ...
+  day         String   // YYYY-MM-DD
+  customer    String   @default("Khách lẻ")
+  tableCode   String?
+  type        String   @default("stay") // stay | take
+  status      String   @default("new") // new | making | done | paid | canceled
+  total       Int      @default(0)
+  discount    Int      @default(0)
+  discountCode String?
+  note        String?
+  payMethod   String?  // cash | transfer
+  paidAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  by          String?
+  paidBy      String?
+  device      String?
+
+  items       OrderItem[]
+}
+
+model OrderItem {
+  id          String   @id @default(cuid())
+  orderId     String
+  menuId      String?
+  icon        String
+  name        String
+  price       Int
+  qty         Int
+  notes       String?
+
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id          String   @id @default(cuid())
+  name        String
+  action      String   // in | out
+  at          DateTime @default(now())
+}
+
+model ShiftClose {
+  id          String   @id @default(cuid())
+  closedAt    DateTime @default(now())
+  closedBy    String
+  day         String
+  revenue     Int      @default(0)
+  cashTotal   Int      @default(0)
+  transferTotal Int    @default(0)
+  orderCount  Int      @default(0)
+  cupsCount   Int      @default(0)
+  canceledCount Int     @default(0)
+  note        String?
+}
