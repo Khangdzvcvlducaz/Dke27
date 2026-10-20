@@ -113,10 +113,21 @@ self.addEventListener('push', (event) => {
           includeUncontrolled: true,
         });
         for (const client of allClients) {
-          client.postMessage({
-            type: 'play-notif-sound',
-            payload,
-          });
+          // Check if this is a Cha-Ching push (for pay staff) or Ho Ho Ho (for kitchen).
+          const soundType = payload.data?.soundType;
+          if (soundType === 'cha-ching') {
+            // Pay staff notification — tell the page to play Cha-Ching.
+            client.postMessage({
+              type: 'play-pay-sound',
+              payload,
+            });
+          } else {
+            // Kitchen notification — tell the page to play Ho Ho Ho.
+            client.postMessage({
+              type: 'play-notif-sound',
+              payload,
+            });
+          }
         }
       } catch (e) {
         // ignore — notification will still show

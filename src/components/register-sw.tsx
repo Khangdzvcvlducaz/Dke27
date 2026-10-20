@@ -60,7 +60,7 @@ export function RegisterSW() {
         window.dispatchEvent(new CustomEvent('push-subscription-expired'))
         return
       }
-      if (msg.type === 'play-notif-sound') {
+      if (msg.type === 'play-notif-sound' || msg.type === 'play-pay-sound') {
         // Deduplicate: if the same order's sound was played within the last
         // 5 seconds, skip — both the socket event handler AND the SW
         // postMessage might fire for the same order.
@@ -76,16 +76,16 @@ export function RegisterSW() {
         }
         ;(window as any).__lastSoundKey = key
         ;(window as any).__lastSoundAt = now
+        // Determine which sound to play based on the message type:
+        // - 'play-notif-sound' → Ho Ho Ho (kitchen: new order for prep)
+        // - 'play-pay-sound' → Cha-Ching (pay: order done, collect money)
+        const soundFile = msg.type === 'play-pay-sound' ? '/pay-notif.mp3' : '/notif.mp3'
         // Play the custom sound effect.
         try {
-          const audio = new Audio('/notif.mp3')
+          const audio = new Audio(soundFile)
           audio.currentTime = 0
-          // Some browsers require the audio to be in the DOM to play reliably.
           audio.style.display = 'none'
           document.body.appendChild(audio)
-          // Remove the audio element when playback ENDS — not after a fixed
-          // timeout. The Ho Ho Ho clip is ~4.57 seconds long; using a 5s
-          // timeout was sometimes interrupting it on slow devices.
           audio.addEventListener('ended', () => {
             try { document.body.removeChild(audio) } catch (e) {}
           })
@@ -98,8 +98,8 @@ export function RegisterSW() {
         } catch (e) {
           // ignore
         }
-        // Also dispatch a global event so the kitchen view can react
-        // (e.g., start vibration on devices that support it).
+        // Dispatch a global event so AppShell/kitchen view can react
+        // (e.g., play Cha-Ching via Web Audio API, start vibration).
         window.dispatchEvent(new CustomEvent('dke-notif-received', { detail: payload }))
       }
     }

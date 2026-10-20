@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { sendNewOrderPush } from '@/lib/push'
+import { sendNewOrderPush, sendDoneOrderPush } from '@/lib/push'
 import { broadcastOrderNew, broadcastOrderUpdate } from '@/lib/socket-server-broadcast'
 
 export const runtime = 'nodejs'
@@ -174,6 +174,27 @@ export async function POST(req: NextRequest) {
         broadcastOrderUpdate('cafe', updated)
       } catch (e) {
         console.warn('[orders] update broadcast failed:', (e as Error).message)
+      }
+
+      // If the order just became 'done' (kitchen finished preparing), send
+      // a Web Push to eligible pay staff so they're alerted EVEN IF THEIR
+      // APP TAB IS CLOSED. This is the ONLY way to notify when the app is
+      // fully closed — socket events and polling only work when the tab
+      // is open. The push payload includes soundType='cha-ching' so the
+      // SW knows to play the Cha-Ching sound (not Ho Ho Ho).
+      if (status === 'done') {
+        try {
+          await sendDoneOrderPush({
+            id: updated.id,
+            code: updated.code,
+            customer: updated.customer,
+            tableCode: updated.tableCode,
+            type: updated.type,
+            items: updated.items.map((i: any) => ({ icon: i.icon, name: i.name, qty: i.qty, notes: i.notes })),
+          })
+        } catch (e) {
+          console.warn('[orders] done push failed:', (e as Error).message)
+        }
       }
 
       return NextResponse.json({ ok: true, order: updated })

@@ -147,6 +147,99 @@ export async function sendNewOrderPush(order: OrderForPush): Promise<void> {
 }
 
 /**
+ * Send a "done order" push notification to all eligible PAY staff.
+ * Eligible = staff.view === 'pay' AND onShift === true AND notifyEnabled === true.
+ * This fires when kitchen marks an order as 'done' (ready for payment collection).
+ *
+ * The push payload includes soundType='cha-ching' so the SW knows to play
+ * the Cha-Ching sound (not Ho Ho Ho) when the notification arrives — even
+ * if the app tab is fully CLOSED (the OS notification shows with system
+ * default sound on Chrome; on iOS PWA the custom sound field is honored).
+ *
+ * When the user clicks the notification → app opens to Pay view.
+ */
+export async function sendDoneOrderPush(order: OrderForPush): Promise<void> {
+  if (!ensureConfigured()) return
+
+  const itemsLine = order.items.map((it) => `${it.qty}× ${it.name}`).join(', ')
+  const tableLine = order.tableCode ? ` — ${order.tableCode}` : ''
+  const title = `💰 Đơn ${order.code} xong`
+  const body = `${itemsLine}${tableLine} — chờ thu tiền`
+
+  const eligible = await db.staff.findMany({
+    where: { view: 'pay', onShift: true, notifyEnabled: true },
+    include: { subscriptions: true },
+  })
+
+  if (eligible.length === 0) {
+    await db.notificationLog.create({
+      data: { orderId: order.id, event: 'failed', reason: 'no-eligible-pay-staff' },
+    })
+    return
+  }
+
+  const buildPayloadFor = (staffId: string, staffName: string) => ({
+    title,
+    body,
+    tag: `dke-pay-${order.id}`,
+    data: {
+      orderId: order.id,
+      staffId,
+      staffName,
+      targetView: 'pay',
+      soundType: 'cha-ching',
+      ts: Date.now(),
+    },
+    sound: '/pay-notif.mp3',
+    vibrate: [300, 150, 300, 150, 300],
+    silent: false,
+    requireInteraction: true,
+    actions: [{ action: 'view', title: '👀 Thu tiền' }],
+  })
+
+  for (const staff of eligible) {
+    for (const sub of staff.subscriptions) {
+      const subscription = {
+        endpoint: sub.endpoint,
+        expirationTime: null,
+        keys: { p256dh: sub.p256dhKey, auth: sub.authKey },
+      }
+      try {
+        const result = await webpush.sendNotification(
+          subscription,
+          JSON.stringify(buildPayloadFor(staff.id, staff.name))
+        )
+        await db.notificationLog.create({
+          data: {
+            orderId: order.id,
+            staffId: staff.id,
+            staffName: staff.name,
+            event: 'sent',
+            status: result.statusCode,
+          },
+        })
+      } catch (err: any) {
+        const statusCode = err?.statusCode || 0
+        const reason = err?.message || 'unknown'
+        await db.notificationLog.create({
+          data: {
+            orderId: order.id,
+            staffId: staff.id,
+            staffName: staff.name,
+            event: 'failed',
+            status: statusCode,
+            reason: reason.slice(0, 200),
+          },
+        })
+        if (statusCode === 404 || statusCode === 410) {
+          try { await db.pushSubscription.delete({ where: { id: sub.id } }) } catch (e) {}
+        }
+      }
+    }
+  }
+}
+
+/**
  * Send a test push to all subscriptions of a staff member.
  * Used by the "Send test notification" button in the staff profile.
  */
