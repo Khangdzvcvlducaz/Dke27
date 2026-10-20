@@ -1,6 +1,11 @@
 #!/bin/sh
 echo "=== db:push ==="
-bun run db:push || true
+mkdir -p /app/db
+bun run db:push 2>&1 || {
+  echo "db:push failed, retrying in 3s..."
+  sleep 3
+  bun run db:push 2>&1 || echo "WARNING: db:push failed — DB might not be initialized"
+}
 
 echo "=== realtime ==="
 cd mini-services/realtime-sync && bun index.ts &
