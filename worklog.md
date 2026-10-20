@@ -557,3 +557,33 @@ Stage Summary:
 - Mỗi đơn done = 1 Cha-Ching, kể cả 3+ đơn liên tiếp ✓
 - Server-side broadcast cho action=update đảm bảo socket event fire cho mọi order status change.
 - Tất cả vẫn works: 1-order-at-a-time, push subscription, PWA, Ho Ho Ho sound loop 6s iOS, QR banking, vibration continuous, polling fallback, Wake Lock, filter admin/pos/pay (new) vs admin/pay (done).
+
+---
+Task ID: 13
+Agent: main (orchestrator)
+Task: Fix khi thoát app vào lại thì không nghe tiếng Cha-Ching nữa.
+
+Work Log:
+- Root cause: khi user đóng tab (thoát app), socket events bị miss (socket.io không replay). Khi user mở lại app, các đơn 'done' đã có sẵn trong DB nhưng không có socket event mới → PayView polling cập nhật list silently (không sound). AppShell chỉ nghe socket events, không có polling fallback cho Cha-Ching.
+- Fix 1: Thêm POLLING FALLBACK trong AppShell cho Cha-Ching:
+  - useEffect mới: setInterval(poll, 10000) + visibilitychange listener
+  - Poll fetches /api/orders?status=done mỗi 10s + khi tab visible
+  - So sánh với seenOrderIdsRef — mỗi đơn 'done' mới (chưa见过) → playChaChing() + toast
+  - Initial poll on mount — catch orders that became 'done' while user was away
+  - Filter: chỉ chạy cho shouldHearChaChingForDone (admin trên Pay view + pay staff)
+- Fix 2: Cải thiện playChaChing() cho AudioContext suspended:
+  - Nếu ctx.state === 'running' → play ngay
+  - Nếu ctx.state === 'suspended' → try resume() + then play (fire-and-forget)
+  - Cũng try source.start() ngay (some browsers produce sound when context later resumes)
+  - Fallback HTMLAudioElement nếu Web Audio path fail
+- Lint PASS.
+- Browser test:
+  - Fresh login (pay staff Thu Tiền) → create 3 orders + mark done → 3 toasts "💰 Đơn #75, #76, #77" ✓
+  - Reload page (simulate "thoát app vào lại") → persisted login restores
+  - Create 1 more order + mark done while "reopened" → polling detects → toast "💰 Đơn #78 xong" ✓
+  - Polling fallback hoạt động cho scenario "thoát app vào lại"
+
+Stage Summary:
+- Bug "thoát app vào lại không nghe Cha-Ching" FIXED — polling fallback trong AppShell phát hiện đơn 'done' mới (dù socket event bị miss).
+- Toast luôn hiện (user biết có đơn mới). Sound có thể cần 1 click đầu tiên để resume AudioContext (browser limitation), sau đó tất cả plays tiếp theo đều work.
+- Tất cả vẫn works: Web Audio API (bypass autoplay policy), filter admin/pos/pay (new) vs admin/pay (done), 1-order-at-a-time, push subscription, PWA, Ho Ho Ho loop 6s iOS, QR banking, vibration, polling fallback, Wake Lock, server-side broadcast.

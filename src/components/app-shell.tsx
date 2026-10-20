@@ -160,20 +160,41 @@ export function AppShell() {
     const ctx = audioContextRef.current
     const buffer = audioBufferRef.current
     if (ctx && buffer) {
-      // If the context is suspended, try to resume it first (fire-and-forget).
-      if (ctx.state === 'suspended') {
-        void ctx.resume().catch(() => {})
-      }
-      try {
-        // Create a new source node for each play — they're independent,
-        // so multiple Cha-Chings can play in parallel (overlapping).
-        const source = ctx.createBufferSource()
-        source.buffer = buffer
-        source.connect(ctx.destination)
-        source.start()
-        return
-      } catch (e) {
-        // Fall through to HTMLAudioElement fallback.
+      if (ctx.state === 'running') {
+        // Context is running — play immediately.
+        try {
+          const source = ctx.createBufferSource()
+          source.buffer = buffer
+          source.connect(ctx.destination)
+          source.start()
+          return
+        } catch (e) {}
+      } else {
+        // Context is suspended (user reopened app, hasn't clicked yet).
+        // Try to resume — if user activation is available, this will work.
+        // If not, the source.start() below runs but no sound is produced
+        // (the context is suspended). The toast still shows, so the user
+        // knows there's a new order. On their next click, the context
+        // resumes and subsequent plays work.
+        void ctx.resume().then(() => {
+          if (ctx.state === 'running') {
+            try {
+              const source = ctx.createBufferSource()
+              source.buffer = buffer!
+              source.connect(ctx.destination)
+              source.start()
+            } catch (e) {}
+          }
+        }).catch(() => {})
+        // Also try immediately (some browsers allow start on suspended context
+        // and produce sound when the context is later resumed).
+        try {
+          const source = ctx.createBufferSource()
+          source.buffer = buffer
+          source.connect(ctx.destination)
+          source.start()
+          return
+        } catch (e) {}
       }
     }
     // Fallback: HTMLAudioElement (may fail with NotAllowedError if no
@@ -229,6 +250,53 @@ export function AppShell() {
       socket.off('connect')
     }
   }, [user, shouldHearChaChingForNew, shouldHearChaChingForDone])
+
+  // POLLING FALLBACK for Cha-Ching: every 10s + on tab visibility change,
+  // fetch all 'done' orders and detect any that arrived while the user was
+  // away (tab closed, backgrounded, or socket missed the event). Play
+  // Cha-Ching for each newly-detected 'done' order (deduped by orderId).
+  //
+  // This is CRITICAL for the "thoát app vào lại" (exit app and reopen)
+  // scenario: when the user closes the tab, socket events are missed.
+  // When they reopen the app, the polling catches up and plays Cha-Ching
+  // for orders that became 'done' while they were away.
+  useEffect(() => {
+    if (!user) return
+    if (!shouldHearChaChingForDone) return // only poll for pay view users
+    let active = true
+    const poll = async () => {
+      if (!active) return
+      try {
+        const r = await fetch('/api/orders?status=done')
+        const d = await r.json()
+        if (!active) return
+        const doneOrders: any[] = d.orders || []
+        for (const o of doneOrders) {
+          const key = `${o.id}:done`
+          if (seenOrderIdsRef.current.has(key)) continue
+          // New 'done' order detected via polling — play Cha-Ching.
+          seenOrderIdsRef.current.add(key)
+          setTimeout(() => { seenOrderIdsRef.current.delete(key) }, 30000)
+          playChaChing()
+          toast.success(`💰 Đơn ${o.code} xong — chờ thu tiền ${fmtVND(o.total)}`)
+        }
+      } catch {}
+    }
+    // Poll every 10 seconds.
+    const interval = setInterval(poll, 10000)
+    // Also poll when the tab becomes visible again (user reopens app).
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void poll()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    // Initial poll on mount (catch orders that became 'done' while user was away).
+    void poll()
+    return () => {
+      active = false
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [user, shouldHearChaChingForDone])
 
   // Wake Lock — keep the screen on so the tab doesn't sleep and miss
   // socket events (which would silence Cha-Ching in background tabs).
