@@ -1,11 +1,12 @@
 #!/bin/sh
+echo "=== START ==="
+echo "DATABASE_URL=$DATABASE_URL"
+echo "PORT=$PORT"
+
 echo "=== db:push ==="
 mkdir -p /app/db
-bun run db:push 2>&1 || {
-  echo "db:push failed, retrying in 3s..."
-  sleep 3
-  bun run db:push 2>&1 || echo "WARNING: db:push failed — DB might not be initialized"
-}
+bunx prisma db push --accept-data-loss 2>&1
+echo "db:push exit code: $?"
 
 echo "=== realtime ==="
 cd mini-services/realtime-sync && bun index.ts &
