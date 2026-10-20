@@ -1,0 +1,19 @@
+version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=file:/app/db/custom.db
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}
+      - VAPID_SUBJECT=mailto:admin@dongkhongem.cafe
+    volumes:
+      - db-data:/app/db
+  realtime:
+    build: ./mini-services/realtime-sync
+    ports:
+      - "3030:3030"
+volumes:
+  db-data:

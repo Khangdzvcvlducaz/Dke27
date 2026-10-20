@@ -143,3 +143,79 @@ Sau khi tạo, đăng nhập với:
 ## License
 
 Private — Đông Không Em? Coffee & Singing ☕🎶
+
+## Deploy lên Cloud (chọn 1)
+
+### Option 1: Railway (Dễ nhất — recommended)
+
+1. Vào https://railway.app → New Project → Deploy from GitHub repo
+2. Chọn repo `Dke27`
+3. Railway tự detect `nixpacks.toml` → build + deploy
+4. Thêm Variables:
+   - `DATABASE_URL=file:/app/db/custom.db`
+   - `VAPID_PUBLIC_KEY=<your-key>`
+   - `VAPID_PRIVATE_KEY=<your-key>`
+   - `VAPID_SUBJECT=mailto:your@email.com`
+5. Thêm Volume → mount path `/app/db` (cho SQLite persist)
+6. Railway cho public URL (VD: `dong-khong-em.up.railway.app`)
+
+### Option 2: Render
+
+1. Vào https://render.com → New → Web Service → Connect GitHub repo
+2. Settings:
+   - Build: `bun install && cd mini-services/realtime-sync && bun install && cd ../.. && bun run db:generate && bun run db:push && bun run build`
+   - Start: `sh start.sh`
+   - Plan: Starter ($7/month — có persistent disk)
+3. Add Environment Variables (same as Railway)
+4. Add Disk → mount path `/app/db`
+
+### Option 3: Fly.io (Docker)
+
+```bash
+# Install flyctl
+curl -L https://fly.io/install.sh | sh
+
+# Login + create app
+flyctl auth login
+flyctl launch --no-deploy
+
+# Set secrets
+flyctl secrets set VAPID_PUBLIC_KEY=xxx VAPID_PRIVATE_KEY=xxx
+
+# Create volume for SQLite
+flyctl volumes create db_data
+flyctl deploy
+```
+
+### Option 4: Cloudflare Tunnel (chạy trên máy bạn)
+
+```bash
+# Install cloudflared
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+chmod +x /usr/local/bin/cloudflared
+
+# Start tunnel to port 3000
+cloudflared tunnel --url http://localhost:3000
+```
+→ Cloudflare cho public URL (VD: `https://random-name.trycloudflare.com`)
+- Ưu điểm: không cần code change, app chạy trên máy bạn
+- Nhược điểm: máy phải luôn bật
+
+### Option 5: Docker (chạy ở đâu cũng được)
+
+```bash
+docker-compose up -d
+```
+→ App chạy ở port 3000 + realtime ở port 3030
+
+### KHÔNG chạy được trên:
+- ❌ GitHub Pages — chỉ host static files, không chạy server-side
+- ❌ Cloudflare Pages/Workers — không hỗ trợ Socket.io, SQLite, bcryptjs, sharp (cần refactor toàn bộ)
+- ❌ Vercel free tier — serverless, không có persistent filesystem cho SQLite + Socket.io
+
+## Lưu ý khi deploy:
+
+1. **Cổng gateway (Caddy)**: trên cloud, không cần Caddy — dùng reverse proxy của platform
+2. **Socket.io URL**: cần update `src/lib/socket-client.ts` nếu deploy khác port 3000
+3. **VAPID keys**: sinh mới bằng `npx web-push generate-vapid-keys`
+4. **HTTPS**: Railway/Render/Fly.io tự động HTTPS — Web Push yêu cầu HTTPS
