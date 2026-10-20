@@ -357,3 +357,35 @@ Stage Summary:
   - Order summary + hướng dẫn khách scan
   - "Đã nhận tiền chuyển khoản" → mark order paid với payMethod='transfer'
 - Tất cả vẫn works: 1-order-at-a-time, push subscription, PWA, vibration continuous (kitchen), Ho Ho Ho sound (kitchen), polling fallback, server-side broadcast, etc.
+
+---
+Task ID: 8
+Agent: main (orchestrator)
+Task: Fix lỗi Cha-Ching chỉ kêu 1 lần khi 2+ đơn chờ thanh toán — sửa để mỗi đơn đều có 1 tiếng Cha-Ching riêng.
+
+Work Log:
+- Phân tích root cause: `playPaySound()` dùng cùng 1 `audioRef` element. Khi 2 đơn về liên tiếp, lần play thứ 2 gọi `audio.currentTime = 0` interrupt lần thứ 1 đang chạy → user chỉ nghe 1 tiếng.
+- Fix: đổi từ `audioRef.current.play()` sang `new Audio('/pay-notif.mp3')` mỗi lần gọi:
+  - Tạo fresh Audio() instance mỗi call — không interrupt nhau
+  - Append vào body (browser yêu cầu DOM element cho reliable playback)
+  - Remove sau 3s (cleanup)
+  - Catch error → fallback `tryBeep()` (Web Audio API 880Hz sine)
+- Bỏ audioRef + <audio ref={audioRef}> element (không cần nữa)
+- Thêm `tryBeep()` function ở cuối file pay-view.tsx (Web Audio API fallback nếu new Audio() fail)
+- Lint PASS.
+- Browser test (agent-browser 2 session qua Caddy port 81):
+  - cashier (admin An) → Pay view
+  - kitchen (Bếp A) → Kitchen view
+  - Tạo 2 orders #22 + #23 (Rapid 1 + Rapid 2) trong DB trực tiếp với status=notified
+  - Mark both done qua API curl (POST /api/orders action=update status=done) trong rapid succession
+  - 3 giây sau:
+    - Pay view: cả 2 đơn #22 và #23 hiện trong danh sách ✓
+    - 2 toasts visible cùng lúc: "💰 Đơn #22 xong — chờ thu tiền 15.000₫" + "💰 Đơn #23 xong — chờ thu tiền 22.000₫" ✓
+    - `document.querySelectorAll('audio').length === 2` — 2 audio elements trong DOM, mỗi cái 1 Cha-Ching instance riêng ✓
+- Kết luận: mỗi đơn 'done' đều có 1 tiếng Cha-Ching riêng, không bị interrupt.
+
+Stage Summary:
+- Bug Cha-Ching chỉ kêu 1 lần FIXED — root cause là reuse cùng audio element; fix bằng `new Audio()` mỗi call.
+- Dedup theo orderId vẫn hoạt động (tránh double-play khi cả server-side lẫn client-side broadcast cho cùng 1 order) — mỗi order vẫn trigger CHÍNH XÁC 1 tiếng.
+- Polling fallback + visibilitychange listener bắt được orders created qua API (server-side không có client-side broadcast) — kitchen không cần phải bấm qua UI.
+- Tất cả vẫn works: 1-order-at-a-time, push subscription, PWA, vibration continuous (kitchen), Ho Ho Ho sound loop 6s (iOS kitchen), QR banking dialog (admin upload), Cha-Ching sound per order (pay view).

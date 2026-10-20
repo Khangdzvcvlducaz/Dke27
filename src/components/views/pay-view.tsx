@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import { useCafeStore } from '@/store/cafe-store'
@@ -18,11 +18,11 @@ export function PayView() {
   const [loading, setLoading] = useState(true)
   const [qrOpen, setQrOpen] = useState(false)
   const [qrOrder, setQrOrder] = useState<OrderDTO | null>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   // Synchronous set of recently-announced order IDs — dedup the sound + toast
   // when both server-side AND client-side broadcast fire for the same order
-  // (similar to kitchen view).
+  // (similar to kitchen view). Each order should trigger EXACTLY ONE
+  // Cha-Ching sound — not zero, not multiple.
   const seenOrderIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
@@ -116,19 +116,39 @@ export function PayView() {
   }, [user])
 
   /**
-   * Play the uploaded "Cha-Ching Money" sound when kitchen marks an order
-   * as done. The audio element is unlocked by the user clicking "Vào làm
-   * việc" (login button) — satisfies browser autoplay policy.
+   * Play the "Cha-Ching Money" sound when kitchen marks an order as done.
+   *
+   * IMPORTANT: We create a NEW Audio() instance for each call instead of
+   * reusing the same audio element. Reason: when 2+ orders become 'done'
+   * in rapid succession, calling `audio.currentTime = 0` + `audio.play()`
+   * on the SAME element interrupts the previous playback — the user only
+   * hears the sound ONCE even though multiple events fired.
+   *
+   * With per-call new Audio() instances, each order gets its own audio
+   * playback. They may overlap slightly if 2 orders arrive within ~1s,
+   * but the user hears the Cha-Ching for each order — which is what they
+   * explicitly requested.
+   *
+   * The audio element is also appended to the DOM (some browsers require
+   * this for reliable playback) and removed after 3 seconds (cleanup).
    */
   function playPaySound() {
     try {
-      const a = audioRef.current
-      if (!a) return
-      a.currentTime = 0
-      void a.play().catch(() => {
-        // Autoplay blocked or audio not ready — ignore (toast still fires).
+      const audio = new Audio('/pay-notif.mp3')
+      audio.style.display = 'none'
+      document.body.appendChild(audio)
+      void audio.play().catch(() => {
+        // Autoplay blocked or audio not ready — fall back to in-app beep.
+        tryBeep()
+      }).finally(() => {
+        // Remove the element after the clip ends (~2s) plus a buffer.
+        setTimeout(() => {
+          try { document.body.removeChild(audio) } catch (e) {}
+        }, 3000)
       })
-    } catch {}
+    } catch {
+      tryBeep()
+    }
   }
 
   async function load() {
@@ -205,9 +225,6 @@ export function PayView() {
 
   return (
     <div className="space-y-4">
-      {/* Hidden audio element for the "Cha-Ching Money" sound. */}
-      <audio ref={audioRef} src="/pay-notif.mp3" preload="auto" />
-
       <div className="bg-primary text-primary-foreground p-4 rounded-2xl shadow-md">
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -285,3 +302,27 @@ export function PayView() {
     </div>
   )
 }
+
+/**
+ * Fallback beep if the custom "Cha-Ching" audio fails to play (e.g., audio
+ * file missing, browser autoplay blocked despite user interaction). Generates
+ * a short 880Hz sine wave via Web Audio API — works on all browsers.
+ */
+function tryBeep() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const t = ctx.currentTime
+    const o = ctx.createOscillator()
+    const g = ctx.createGain()
+    o.type = 'sine'
+    o.frequency.value = 880
+    g.gain.setValueAtTime(0.0001, t)
+    g.gain.exponentialRampToValueAtTime(0.3, t + 0.02)
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5)
+    o.connect(g)
+    g.connect(ctx.destination)
+    o.start(t)
+    o.stop(t + 0.5)
+  } catch {}
+}
+
