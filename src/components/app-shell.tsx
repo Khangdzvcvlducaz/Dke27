@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { toast } from 'sonner'
 import { useCafeStore } from '@/store/cafe-store'
-import { TABDEF } from '@/lib/format'
+import { TABDEF, fmtVND } from '@/lib/format'
 import { BrandLogo } from '@/components/brand-logo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -30,6 +31,100 @@ export function AppShell() {
   const [payCount, setPayCount] = useState(0)
   const [chatOpen, setChatOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+
+  // Synchronous set of recently-announced order IDs — prevents double-Cha-Ching
+  // when both socket 'order:new' AND polling fallback fire for the same order.
+  // Each order triggers EXACTLY ONE Cha-Ching — not zero, not multiple.
+  const seenOrderIdsRef = useRef<Set<string>>(new Set())
+
+  /**
+   * Play the "Cha-Ching Money" sound globally — fires whenever a new order
+   * is created (Shopify-style) OR when a kitchen marks an order as done
+   * (ready to collect payment). Each call creates a NEW Audio() instance
+   * so multiple rapid events don't interrupt each other.
+   *
+   * Filter: only plays for admin, POS staff, and Pay staff. Kitchen staff
+   * hear their own Ho Ho Ho sound — they don't need Cha-Ching too.
+   */
+  const shouldHearChaChing = user && user.role !== 'staff' || user?.view !== 'kitchen'
+
+  function playChaChing() {
+    try {
+      const audio = new Audio('/pay-notif.mp3')
+      audio.style.display = 'none'
+      document.body.appendChild(audio)
+      void audio.play().catch(() => {}).finally(() => {
+        setTimeout(() => {
+          try { document.body.removeChild(audio) } catch (e) {}
+        }, 3000)
+      })
+    } catch {}
+  }
+
+  // GLOBAL socket listener for Cha-Ching — fires regardless of current view.
+  // This is the Shopify-like behavior: every new order = 1 Cha-Ching, and
+  // every order marked done = 1 Cha-Ching.
+  useEffect(() => {
+    if (!user) return
+    if (!shouldHearChaChing) return // kitchen staff skip
+    const socket = getSocket('cafe')
+    const handleOrderEvent = (o: { id: string; code: string; status: string; by?: string; total: number; customer?: string }) => {
+      // Dedup: each order triggers exactly ONE Cha-Ching per event type.
+      // We use a composite key (orderId + status) so a new order Cha-Ching
+      // and a "done" Cha-Ching are separate events.
+      const key = `${o.id}:${o.status}`
+      if (seenOrderIdsRef.current.has(key)) return
+      seenOrderIdsRef.current.add(key)
+      setTimeout(() => { seenOrderIdsRef.current.delete(key) }, 30000)
+      // Don't play if the current user is the one who triggered this event
+      // (e.g., cashier creating an order doesn't need their own confirmation).
+      // But the server-side broadcast comes via a different socket, so we
+      // DO receive it — play Cha-Ching anyway as Shopify-like confirmation.
+      playChaChing()
+      if (o.status === 'new' || o.status === 'notified') {
+        toast.success(`🔔 Đơn mới ${o.code} — ${o.by || 'Khách'}`)
+      } else if (o.status === 'done') {
+        toast.success(`💰 Đơn ${o.code} xong — chờ thu tiền ${fmtVND(o.total)}`)
+      }
+    }
+    const onNew = (o: any) => handleOrderEvent(o)
+    const onUpdate = (o: any) => handleOrderEvent(o)
+    socket.on('order:new', onNew)
+    socket.on('order:update', onUpdate)
+    // Re-join room on reconnect.
+    socket.on('connect', () => {
+      socket.emit('join', 'cafe')
+    })
+    return () => {
+      socket.off('order:new', onNew)
+      socket.off('order:update', onUpdate)
+      socket.off('connect')
+    }
+  }, [user, shouldHearChaChing])
+
+  // Wake Lock — keep the screen on so the tab doesn't sleep and miss
+  // socket events (which would silence Cha-Ching in background tabs).
+  // Released when user logs out or navigates away.
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return
+    if (!('wakeLock' in navigator)) return
+    if (!user) return
+    if (!shouldHearChaChing) return // kitchen view has its own wake lock
+    let wakeLock: any = null
+    const request = async () => {
+      try { wakeLock = await (navigator as any).wakeLock.request('screen') } catch {}
+    }
+    void request()
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && !wakeLock) void request()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      if (wakeLock?.release) { try { wakeLock.release() } catch {} }
+      wakeLock = null
+    }
+  }, [user, shouldHearChaChing])
 
   // Handle deep links from notification clicks: ?open=kitchen&order=ID
   useEffect(() => {

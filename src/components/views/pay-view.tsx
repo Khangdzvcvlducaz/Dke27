@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import { useCafeStore } from '@/store/cafe-store'
@@ -19,35 +19,18 @@ export function PayView() {
   const [qrOpen, setQrOpen] = useState(false)
   const [qrOrder, setQrOrder] = useState<OrderDTO | null>(null)
 
-  // Synchronous set of recently-announced order IDs — dedup the sound + toast
-  // when both server-side AND client-side broadcast fire for the same order
-  // (similar to kitchen view). Each order should trigger EXACTLY ONE
-  // Cha-Ching sound — not zero, not multiple.
-  const seenOrderIdsRef = useRef<Set<string>>(new Set())
-
   useEffect(() => {
     void load()
     const socket = getSocket('cafe')
+    // Socket listener — only updates the orders list. The Cha-Ching sound
+    // + toast are handled GLOBALLY by AppShell (so they fire even when the
+    // user is on a different view, like POS or Report).
     const onNew = (o: OrderDTO) => {
       if (o.status !== 'done') return
-      // Synchronous dedup using ref.
-      if (seenOrderIdsRef.current.has(o.id)) return
-      seenOrderIdsRef.current.add(o.id)
-      setTimeout(() => { seenOrderIdsRef.current.delete(o.id) }, 30000)
       setOrders((list) => [o, ...list.filter((x) => x.id !== o.id)])
-      // Play Cha-Ching sound + toast when kitchen marks an order as done.
-      playPaySound()
-      toast.success(`💰 Đơn ${o.code} xong — chờ thu tiền ${fmtVND(o.total)}`)
     }
     const onUpdate = (o: OrderDTO) => {
       if (o.status === 'done') {
-        // Dedup: if not yet announced, play sound.
-        if (!seenOrderIdsRef.current.has(o.id)) {
-          seenOrderIdsRef.current.add(o.id)
-          setTimeout(() => { seenOrderIdsRef.current.delete(o.id) }, 30000)
-          playPaySound()
-          toast.success(`💰 Đơn ${o.code} xong — chờ thu tiền ${fmtVND(o.total)}`)
-        }
         setOrders((list) => [o, ...list.filter((x) => x.id !== o.id)])
       } else if (o.status === 'paid' || o.status === 'canceled') {
         setOrders((list) => list.filter((x) => x.id !== o.id))
@@ -59,7 +42,6 @@ export function PayView() {
     socket.on('order:new', onNew)
     socket.on('order:update', onUpdate)
     socket.on('order:delete', onDelete)
-    // Re-join room on reconnect — same pattern as kitchen view.
     socket.on('connect', () => {
       socket.emit('join', 'cafe')
       void load()
@@ -72,9 +54,10 @@ export function PayView() {
     }
   }, [user])
 
-  // POLLING FALLBACK: refetch done orders every 10 seconds to catch any
-  // socket events missed (network drop, tab sleep, etc.). Same pattern as
-  // kitchen view.
+  // POLLING FALLBACK: refetch done orders every 10 seconds to keep the list
+  // in sync if socket events are missed. Does NOT play sound — AppShell
+  // handles Cha-Ching globally (so user hears it from any view, not just
+  // when on Pay view).
   useEffect(() => {
     if (!user) return
     let active = true
@@ -86,16 +69,6 @@ export function PayView() {
         if (!active) return
         const newOrders: OrderDTO[] = d.orders || []
         setOrders((prev) => {
-          // Detect new orders that arrived via polling (not via socket).
-          // Play sound for those that we haven't announced yet.
-          for (const no of newOrders) {
-            if (!prev.some((o) => o.id === no.id) && !seenOrderIdsRef.current.has(no.id)) {
-              seenOrderIdsRef.current.add(no.id)
-              setTimeout(() => { seenOrderIdsRef.current.delete(no.id) }, 30000)
-              playPaySound()
-              toast.success(`💰 Đơn ${no.code} xong — chờ thu tiền ${fmtVND(no.total)}`)
-            }
-          }
           const sameSet = prev.length === newOrders.length && prev.every((o, i) => o.id === newOrders[i]?.id)
           return sameSet ? prev : newOrders
         })
@@ -114,42 +87,6 @@ export function PayView() {
       document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [user])
-
-  /**
-   * Play the "Cha-Ching Money" sound when kitchen marks an order as done.
-   *
-   * IMPORTANT: We create a NEW Audio() instance for each call instead of
-   * reusing the same audio element. Reason: when 2+ orders become 'done'
-   * in rapid succession, calling `audio.currentTime = 0` + `audio.play()`
-   * on the SAME element interrupts the previous playback — the user only
-   * hears the sound ONCE even though multiple events fired.
-   *
-   * With per-call new Audio() instances, each order gets its own audio
-   * playback. They may overlap slightly if 2 orders arrive within ~1s,
-   * but the user hears the Cha-Ching for each order — which is what they
-   * explicitly requested.
-   *
-   * The audio element is also appended to the DOM (some browsers require
-   * this for reliable playback) and removed after 3 seconds (cleanup).
-   */
-  function playPaySound() {
-    try {
-      const audio = new Audio('/pay-notif.mp3')
-      audio.style.display = 'none'
-      document.body.appendChild(audio)
-      void audio.play().catch(() => {
-        // Autoplay blocked or audio not ready — fall back to in-app beep.
-        tryBeep()
-      }).finally(() => {
-        // Remove the element after the clip ends (~2s) plus a buffer.
-        setTimeout(() => {
-          try { document.body.removeChild(audio) } catch (e) {}
-        }, 3000)
-      })
-    } catch {
-      tryBeep()
-    }
-  }
 
   async function load() {
     setLoading(true)
@@ -236,7 +173,7 @@ export function PayView() {
           {orders.length > 0 && (
             <div className="flex items-center gap-1 text-xs opacity-90">
               <Volume2 className="size-4" />
-              <span>Cha-Ching khi có đơn xong</span>
+              <span>Cha-Ching nghe từ mọi view</span>
             </div>
           )}
         </div>
@@ -302,27 +239,3 @@ export function PayView() {
     </div>
   )
 }
-
-/**
- * Fallback beep if the custom "Cha-Ching" audio fails to play (e.g., audio
- * file missing, browser autoplay blocked despite user interaction). Generates
- * a short 880Hz sine wave via Web Audio API — works on all browsers.
- */
-function tryBeep() {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
-    const t = ctx.currentTime
-    const o = ctx.createOscillator()
-    const g = ctx.createGain()
-    o.type = 'sine'
-    o.frequency.value = 880
-    g.gain.setValueAtTime(0.0001, t)
-    g.gain.exponentialRampToValueAtTime(0.3, t + 0.02)
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5)
-    o.connect(g)
-    g.connect(ctx.destination)
-    o.start(t)
-    o.stop(t + 0.5)
-  } catch {}
-}
-

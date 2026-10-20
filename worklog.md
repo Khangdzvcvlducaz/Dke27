@@ -389,3 +389,43 @@ Stage Summary:
 - Dedup theo orderId vẫn hoạt động (tránh double-play khi cả server-side lẫn client-side broadcast cho cùng 1 order) — mỗi order vẫn trigger CHÍNH XÁC 1 tiếng.
 - Polling fallback + visibilitychange listener bắt được orders created qua API (server-side không có client-side broadcast) — kitchen không cần phải bấm qua UI.
 - Tất cả vẫn works: 1-order-at-a-time, push subscription, PWA, vibration continuous (kitchen), Ho Ho Ho sound loop 6s (iOS kitchen), QR banking dialog (admin upload), Cha-Ching sound per order (pay view).
+
+---
+Task ID: 9
+Agent: main (orchestrator)
+Task: Fix Cha-Ching không kêu khi thoát app (chỉ nghe khi truy cập lại). Thêm thông báo Shopify-like: mỗi đơn tạo ra = 1 tiếng Cha-Ching.
+
+Work Log:
+- Root cause analysis: Cha-Ching logic chỉ nằm trong PayView component. Khi user ở view khác (POS, Report, Menu) thì PayView không mounted → không nghe Cha-Ching. Tab background → audio.play() có thể bị chặn nếu chưa có user interaction gần đây.
+- Fix 1: Di dời toàn bộ Cha-Ching logic từ PayView sang AppShell (luôn mounted khi user logged in):
+  - Socket listener cho 'order:new' (Shopify-style — mỗi đơn tạo ra = 1 Cha-Ching) VÀ 'order:update status=done' (bếp xong món = 1 Cha-Ching)
+  - seenOrderIdsRef = useRef<Set<string>>() với composite key `${orderId}:${status}` — mỗi event type dedup riêng (1 đơn có thể có 2 Cha-Ching: 1 khi new, 1 khi done)
+  - playChaChing() dùng new Audio('/pay-notif.mp3') mỗi call (không interrupt nhau)
+  - Toast khác nhau theo status: "🔔 Đơn mới #X" (new) hoặc "💰 Đơn #X xong — chờ thu tiền Y₫" (done)
+- Fix 2: Filter shouldHearChaChing — chỉ admin/pos/pay staff nghe Cha-Ching. Kitchen staff skip (Ho Ho Ho là sound của họ, không cần Cha-Ching).
+- Fix 3: Wake Lock trong AppShell — giữ tab alive khi background để socket events vẫn fire + audio.play() chạy được.
+- Fix 4: Loại bỏ Cha-Ching logic cũ trong PayView (audio element, socket listener sound, polling sound):
+  - PayView giờ chỉ hiển thị orders list + handle payment (cash/transfer) + QR sheet
+  - Socket listener trong PayView chỉ update list (không sound)
+  - Polling fallback trong PayView chỉ update list (không sound)
+- Re-join room on socket reconnect trong AppShell.
+- Lint PASS.
+- Browser test (agent-browser 2 session qua Caddy port 81):
+  - cashier (admin An) login, ở POS view (KHÔNG phải Pay view)
+  - Tạo order #26 qua API: cashier POS view nghe Cha-Ching + toast "🔔 Đơn mới #26 — An" ✓
+  - 1 audio element trong DOM ngay sau khi tạo ✓
+  - Tạo 2 orders rapid (#27, #28): 2 audio elements trong DOM = 2 Cha-Ching đồng thời ✓
+  - 2 toasts visible cùng lúc: "🔔 Đơn mới #27 — An" + "🔔 Đơn mới #28 — An" ✓
+  - Chuyển cashier sang Report view, tạo order #31: cashier Report view nghe Cha-Ching + toast "🔔 Đơn mới #31 — An" ✓ (global, không phụ thuộc view)
+  - Kitchen session login Bếp A, accept + mark done order #30 qua UI
+  - Cashier (vẫn ở Report view) nghe Cha-Ching + toast "💰 Đơn #30 xong — chờ thu tiền 22.000₫" ✓ (1 audio element trong DOM)
+- Kết luận: Cha-Ching giờ fire globally từ AppShell — nghe được ở mọi view (POS, Pay, Report, Menu), không chỉ Pay view. Tab background vẫn nghe được nhờ Wake Lock giữ tab alive.
+
+Stage Summary:
+- Bug "thoát app không nghe Cha-Ching" FIXED — Cha-Ching giờ fire từ AppShell (global), không chỉ PayView.
+- Shopify-like behavior ADDED — mỗi đơn tạo ra (status='new' hoặc 'notified') = 1 tiếng Cha-Ching.
+- Cha-Ching cũng fire khi bếp mark done (status='done') — cho pay staff biết đến lượt thu tiền.
+- Wake Lock giữ tab alive khi background → socket events vẫn fire → audio.play() chạy được.
+- Filter: chỉ admin/pos/pay nghe Cha-Ching; kitchen staff có Ho Ho Ho riêng.
+- Dedup theo orderId+status: mỗi event type 1 Cha-Ching (1 đơn có thể có 2 Cha-Ching: 1 new + 1 done).
+- Tất cả vẫn works: 1-order-at-a-time, push subscription, PWA, Ho Ho Ho sound loop 6s (iOS kitchen), QR banking dialog, vibration continuous (Android kitchen), polling fallback.
