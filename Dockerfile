@@ -46,5 +46,5 @@ RUN chmod +x ./start.sh
 EXPOSE 3000
 ENV PORT=3000
 
-# At container start: run db:push (creates/migrates SQLite) then start both services
-CMD ["sh", "-c", "bun run db:push && cd mini-services/realtime-sync && bun run index.ts & sleep 2 && exec node server.js"]
+# Use start.sh script — handles db:push + both services in a single shell
+CMD ["bash", "start.sh"]

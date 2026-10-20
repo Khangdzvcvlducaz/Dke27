@@ -6,13 +6,12 @@ cmds = ["bun install", "cd mini-services/realtime-sync && bun install && cd ../.
 cacheDirs = ["/root/.bun/install/cache"]
 
 [phases.build]
-# Only generate Prisma client + build Next.js — do NOT run db:push here
-# (DATABASE_URL is not available during build; db:push runs at container start)
 cmds = ["bun run db:generate", "bun run build"]
 
 [start]
-# At container start: run db:push (creates SQLite with DATABASE_URL env var) then start both services
-cmd = "sh -c 'bun run db:push && cd mini-services/realtime-sync && bun run index.ts & sleep 2 && exec node server.js'"
+# Use the start.sh script — handles db:push + both services
+# Railway executes this directly (no shell needed for the script path)
+cmd = "bash start.sh"
 
 [variables]
 PORT = "3000"
