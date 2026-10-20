@@ -35,6 +35,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Đơn đã bị hủy' }, { status: 400 })
     }
 
+    // 1-order-at-a-time rule: a kitchen staff member can only have ONE order
+    // in "making" status at any time. They must complete (or cancel) their
+    // current order before accepting another. This prevents staff from
+    // being assigned 2 drinks to prepare simultaneously.
+    if (staffName) {
+      const inProgress = await db.order.findFirst({
+        where: { status: 'making', assignedTo: staffName },
+        select: { id: true, code: true },
+      })
+      if (inProgress && inProgress.id !== orderId) {
+        return NextResponse.json({
+          error: `Bạn đang pha đơn ${inProgress.code}. Hoàn thành hoặc hủy đơn đó trước khi nhận đơn khác.`,
+          inProgressOrderId: inProgress.id,
+          inProgressCode: inProgress.code,
+        }, { status: 409 })
+      }
+    }
+
     const updated = await db.order.update({
       where: { id: orderId },
       data: { status: 'making', assignedTo: staffName || order.assignedTo },

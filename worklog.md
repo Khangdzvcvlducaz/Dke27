@@ -119,3 +119,50 @@ Stage Summary:
 - Đã thêm đầy đủ Web Push feature như spec: staff notification settings với explicit enable button (không auto-request), push subscription backend lưu per-staff (không lộ keys ra UI), new drink order flow gửi push cho on-shift kitchen staff với title/body concise, click notification → focus/open app tới kitchen view, 'notified' state tách biệt với 'accepted', vibration pattern [300,150,300,150,300] + silent=false, staff shift toggle + manager view on-shift status, fallback manual assign + 2-min alert, PWA manifest+icons+SW register từ root, auth required cho subscribe/test, NotificationLog audit không log payload, staff có thể remove device.
 - Toàn bộ UI/routing/auth/logic/design cũ giữ nguyên — chỉ thêm nút User ở header + 2 components mới trong report view + 1 sheet mới. Sticky footer, mobile responsive, design system (cream/red, Be Vietnam Pro/Oswald, shadcn/ui, framer-motion) đều không đổi.
 - Production note: thay VAPID keys trong .env bằng keys của user. Web Push yêu cầu HTTPS (Caddy gateway đã lo). iOS 16.4+ cần PWA installed. Android Chrome works as-is.
+
+---
+Task ID: 3
+Agent: main (orchestrator)
+Task: Chèn file âm thanh "Ho Ho Ho Merry Christmas Sound Effect.mp3" cho thông báo + kitchen rung liên tục khi có đơn chờ nhận + quy tắc mỗi nhân viên chỉ pha 1 đơn 1 lúc (không pha 2 đơn cùng lúc).
+
+Work Log:
+- Copy /home/z/my-project/upload/Ho Ho Ho Merry Christmas Sound Effect.mp3 → /home/z/my-project/public/notif.mp3 (157KB, serve qua Next.js static).
+- Cập nhật public/sw.js: thêm `sound: '/notif.mp3'` vào showNotification options (best-effort — Chrome bỏ qua field này, Safari/iOS PWA có thể honor; system default sound vẫn phát cho background push).
+- Cập nhật src/lib/push.ts: thêm `sound: '/notif.mp3'`, `vibrate: [300,150,300,150,300]`, `silent: false`, `requireInteraction: true` vào payload gửi tới SW.
+- Cập nhật src/app/api/orders/accept/route.ts: thêm check 1-order-at-a-time — trước khi set status=making, query `findFirst({ where: { status: 'making', assignedTo: staffName } })`; nếu đã có đơn khác đang pha, trả 409 với `{ error, inProgressOrderId, inProgressCode }`. Backend đảm bảo rule không phụ thuộc client.
+- Cập nhật src/app/api/orders/assign/route.ts: cũng thêm check tương tự cho admin manual-assign — nếu staff đã đang pha 1 đơn, không cho giao thêm.
+- Cập nhật src/components/views/kitchen-view.tsx:
+  - OrderDTO thêm `notifiedAt: string | null`, `assignedTo: string | null`
+  - Thêm `audioRef` (useRef<HTMLAudioElement | null>) + element `<audio src="/notif.mp3" preload="auto" />` ẩn trong JSX
+  - Thêm `myInProgress = making.find(o => o.assignedTo === user?.name) || null` — order đang pha của user này
+  - Khi có order mới tới (socket 'order:new' hoặc 'order:update' với status=new/notified): gọi `playNotifSound()` (audio.currentTime=0; audio.play().catch(fallback beep))
+  - useEffect vibration: khi `wait.length > 0 && !myInProgress && user.staffId`: setInterval 1500ms gọi `navigator.vibrate([300,150,300,150,300])` — rung liên tục; khi myInProgress được set hoặc wait list trống, clear interval + `navigator.vibrate(0)` để dừng. Skip nếu admin view (không staffId) hoặc browser không hỗ trợ Vibration API.
+  - `doAction('start')`: client-side check — nếu myInProgress !== null, toast.error và return; gọi POST /api/orders/accept; nếu response 409 + inProgressCode, throw Error với message "Bạn đang pha {inProgressCode}..."
+  - Render thêm:
+    1. `<audio ref={audioRef} src="/notif.mp3" preload="auto" />` ẩn
+    2. Banner amber "Bạn đang pha đơn #XX" với 2 nút "Xong #XX" + "Hủy" — chỉ hiện khi myInProgress !== null
+    3. Indicator đỏ pulse "Thiết bị đang rung liên tục để báo có đơn chờ — bấm 'Nhận pha' để dừng" — chỉ hiện khi wait.length > 0 && !myInProgress && user.staffId
+  - Truyền `disableAccept={!!myInProgress}` cho KitchenCard; KitchenCard thêm prop `disableAccept?: boolean`; button "Nhận pha" thêm `disabled={disableAccept}` + title "Bạn đang pha một đơn khác — hoàn thành hoặc hủy đơn đó trước"
+- Lint PASS (sau khi xóa unused eslint-disable ở effect dependency).
+- Browser test (agent-browser):
+  - Login Bếp A (PIN 1111) → vào Kitchen view. State: đang pha #07 (từ test trước).
+  - UI: banner "Bạn đang pha đơn #07" + 2 nút "Xong #07" + "Hủy"; making column 1; wait column 0.
+  - Tạo order mới #08 qua API cashier (An tạo): tạo xong status=notified, push attempted.
+  - Reload: order #08 hiện trong wait column với badge "🔔 Đã gửi thông báo"; "Nhận pha" button DISABLED (disableAccept=true vì myInProgress). Tabbar badge "Quầy pha 1".
+  - Click "Xong #07" (trong banner) → #07 status=done → making column rỗng, banner biến mất, vibration indicator "Thiết bị đang rung liên tục..." xuất hiện, "Nhận pha" của #08 ENABLED.
+  - Click "Nhận pha" #08 → #08 status=making assignedTo=Bếp A, banner "Bạn đang pha đơn #08", vibration indicator biến mất (vì myInProgress đã set, dừng vibrate), wait column rỗng, making column 1.
+- API curl test 1-order-at-a-time:
+  - Tạo order #06 (An) → status=notified OK
+  - POST /api/orders/accept order #06 với staffName=Bếp A → 200, status=making assignedTo=Bếp A OK
+  - Tạo order #07 (An) → status=notified OK
+  - POST /api/orders/accept order #07 với staffName=Bếp A → 409 + `{"error":"Bạn đang pha đơn #06. Hoàn thành hoặc hủy đơn đó trước khi nhận đơn khác.","inProgressOrderId":"...","inProgressCode":"#06"}` ✓
+  - POST /api/orders/assign order #07 staffName=Bếp A → 409 + `{"error":"Bếp A đang pha đơn #06. Hoàn thành đơn đó trước khi giao đơn khác."}` ✓
+  - POST /api/orders update order #06 status=done → 200
+  - POST /api/orders/accept order #07 staffName=Bếp A → 200 (sau khi #06 done, Bếp A free) ✓
+- Audit: NotificationLog không log payload sound hay customer data, chỉ log event='sent'|'failed'|'accepted' với orderId + staffName + status HTTP + reason ngắn.
+
+Stage Summary:
+- Âm thanh "Ho Ho Ho Merry Christmas" đã chèn: foreground (page mở) — audio element play() khi có đơn mới tới; background (push) — sound:'/notif.mp3' field trong SW showNotification (best-effort, Safari/iOS có thể honor).
+- Vibration liên tục ở Kitchen view: setInterval 1500ms lặp pattern [300,150,300,150,300] khi wait.length>0 && !myInProgress && user.staffId; dừng ngay khi staff accept (myInProgress set) hoặc hết đơn chờ. UI indicator pulse báo "Thiết bị đang rung liên tục..." cho user biết.
+- 1-order-at-a-time rule: backend enforce (409 Conflict với inProgressCode trả về client), frontend disable button + show banner "Bạn đang pha đơn #XX" với quick actions. Áp dụng cho cả /api/orders/accept (SW click + kitchen button) và /api/orders/assign (admin manual). Staff phải done/cancel đơn hiện tại trước khi nhận đơn khác.
+- Không redesign gì — chỉ thêm audio element ẩn + 1 banner + 1 indicator trong kitchen view + prop disableAccept cho KitchenCard. Design system (cream/red, Be Vietnam Pro/Oswald, shadcn/ui, framer-motion) giữ nguyên.

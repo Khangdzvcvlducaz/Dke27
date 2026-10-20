@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import { useCafeStore } from '@/store/cafe-store'
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { getSocket, broadcastOrderUpdate } from '@/lib/socket-client'
-import { Play, Check, X, Clock, Flame, Hourglass } from 'lucide-react'
+import { Play, Check, X, Clock, Flame, Hourglass, Vibrate, AlertCircle } from 'lucide-react'
 
 export interface OrderDTO {
   id: string
@@ -25,6 +25,8 @@ export interface OrderDTO {
   note: string | null
   payMethod: string | null
   paidAt: string | null
+  notifiedAt: string | null
+  assignedTo: string | null
   by: string | null
   paidBy: string | null
   createdAt: string
@@ -37,6 +39,12 @@ export function KitchenView() {
   const [wait, setWait] = useState<OrderDTO[]>([])
   const [making, setMaking] = useState<OrderDTO[]>([])
   const [loading, setLoading] = useState(true)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  // "My in-progress order" = the order this staff member is currently preparing
+  // (status='making' AND assignedTo === user.name). When this is set, the staff
+  // cannot accept another order until they finish or cancel this one.
+  const myInProgress = making.find((o) => o.assignedTo === user?.name) || null
 
   useEffect(() => {
     void load()
@@ -48,6 +56,7 @@ export function KitchenView() {
       })
       if (o.by !== user?.name) {
         toast.success(`🔔 Đơn mới ${o.code} — ${o.by}`)
+        playNotifSound()
         tryBeep()
       }
     }
@@ -66,6 +75,10 @@ export function KitchenView() {
       })
       if (o.status === 'new' || o.status === 'notified') {
         setWait((w) => (w.some((x) => x.id === o.id) ? w : [o, ...w]))
+        // Also play sound + beep on remote notifications (other devices).
+        if (o.by !== user?.name) {
+          playNotifSound()
+        }
       }
     }
     const onDelete = ({ id }: { id: string }) => {
@@ -81,6 +94,52 @@ export function KitchenView() {
       socket.off('order:delete', onDelete)
     }
   }, [user])
+
+  // Continuous vibration while there is at least one order waiting to be
+  // accepted AND the current staff is not already preparing another order.
+  // Honors Vibration API (Android Chrome). iOS Safari doesn't support it.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('vibrate' in navigator)) return
+    if (!user?.staffId) return // admin viewing — no vibration
+    const needsAttention = wait.length > 0 && !myInProgress
+    if (!needsAttention) {
+      // Cancel any ongoing vibration.
+      try { navigator.vibrate(0) } catch {}
+      return
+    }
+    // Pattern is ~1.2s long; repeat every 1.5s for a continuous rhythm
+    // until the staff accepts (myInProgress becomes set) or wait list clears.
+    const pattern = [300, 150, 300, 150, 300]
+    // Fire once immediately, then on an interval.
+    try { navigator.vibrate(pattern) } catch {}
+    const interval = setInterval(() => {
+      try { navigator.vibrate(pattern) } catch {}
+    }, 1500)
+    return () => {
+      clearInterval(interval)
+      try { navigator.vibrate(0) } catch {}
+    }
+  }, [wait.length, myInProgress, user?.staffId])
+
+  /**
+   * Play the uploaded "Ho Ho Ho Merry Christmas" sound for new-order notifications.
+   * Foreground playback works without any extra permission since the staff has
+   * already clicked to log in (satisfying browser autoplay policy).
+   */
+  function playNotifSound() {
+    try {
+      const a = audioRef.current
+      if (!a) return
+      // Rewind so repeated events replay from the start.
+      a.currentTime = 0
+      void a.play().catch(() => {
+        // Autoplay blocked or audio not ready — fall back to in-app beep.
+        tryBeep()
+      })
+    } catch {
+      tryBeep()
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -106,16 +165,28 @@ export function KitchenView() {
   async function doAction(act: 'start' | 'finish' | 'cancel', id: string) {
     try {
       if (act === 'start') {
+        // 1-order-at-a-time guard: client-side check before the call.
+        if (myInProgress) {
+          toast.error(`Bạn đang pha ${myInProgress.code}. Hoàn thành hoặc hủy trước khi nhận đơn khác.`)
+          return
+        }
         // "Start making" = accept for preparation (uses accept endpoint,
         // which is also reachable from the SW notification action).
-        const user = useCafeStore.getState().user
+        const u = useCafeStore.getState().user
         const r = await fetch('/api/orders/accept', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderId: id, staffId: user?.staffId, staffName: user?.name }),
+          body: JSON.stringify({ orderId: id, staffId: u?.staffId, staffName: u?.name }),
         })
         const d = await r.json()
-        if (!r.ok) throw new Error(d.error)
+        if (!r.ok) {
+          // 409 = 1-order-at-a-time rule violated on backend side (e.g. accepted
+          // via SW from another tab). Show the in-progress code in the toast.
+          if (r.status === 409 && d.inProgressCode) {
+            throw new Error(`Bạn đang pha ${d.inProgressCode}. Hoàn thành hoặc hủy trước khi nhận đơn khác.`)
+          }
+          throw new Error(d.error)
+        }
         broadcastOrderUpdate('cafe', d.order)
         setWait((w) => w.filter((x) => x.id !== id))
         if (!d.alreadyAccepted) {
@@ -150,9 +221,44 @@ export function KitchenView() {
 
   return (
     <div className="space-y-4">
+      {/* Hidden audio element for foreground notification sound. */}
+      <audio ref={audioRef} src="/notif.mp3" preload="auto" />
+
       <h2 className="text-xl font-semibold uppercase tracking-wide" style={{ fontFamily: 'var(--font-oswald)' }}>
         ☕ Quầy pha
       </h2>
+
+      {/* 1-order-at-a-time banner — visible when this staff already has an order in making. */}
+      {myInProgress && (
+        <div className="bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 dark:border-amber-700 rounded-2xl p-3 flex items-start gap-3">
+          <AlertCircle className="size-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-sm flex-1">
+            <b className="text-amber-900 dark:text-amber-100">
+              Bạn đang pha đơn {myInProgress.code}
+            </b>
+            <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
+              Mỗi nhân viên chỉ pha <b>1 đơn lúc một thời điểm</b>. Hoàn thành hoặc hủy đơn này trước khi nhận đơn khác.
+            </p>
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => doAction('finish', myInProgress.id)}>
+                <Check className="size-3.5 mr-1" /> Xong {myInProgress.code}
+              </Button>
+              <Button size="sm" variant="outline" className="text-primary border-primary" onClick={() => { if (confirm(`Hủy ${myInProgress.code}?`)) doAction('cancel', myInProgress.id) }}>
+                <X className="size-3.5 mr-1" /> Hủy
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vibration status indicator — shows when the device is currently vibrating. */}
+      {wait.length > 0 && !myInProgress && user?.staffId && (
+        <div className="bg-primary/10 border border-primary/30 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-primary animate-pulse">
+          <Vibrate className="size-4" />
+          <span>Thiết bị đang rung liên tục để báo có đơn chờ — bấm "Nhận pha" để dừng.</span>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Wait column */}
         <div>
@@ -166,7 +272,7 @@ export function KitchenView() {
           <div className="space-y-3">
             <AnimatePresence>
               {wait.map((o) => (
-                <KitchenCard key={o.id} order={o} onAction={doAction} />
+                <KitchenCard key={o.id} order={o} onAction={doAction} disableAccept={!!myInProgress} />
               ))}
             </AnimatePresence>
             {wait.length === 0 && !loading && <EmptyState msg="Hết đơn chờ 🎉" />}
@@ -204,7 +310,15 @@ function EmptyState({ msg }: { msg: string }) {
   )
 }
 
-function KitchenCard({ order, onAction }: { order: OrderDTO; onAction: (act: 'start' | 'finish' | 'cancel', id: string) => void }) {
+function KitchenCard({
+  order,
+  onAction,
+  disableAccept = false,
+}: {
+  order: OrderDTO
+  onAction: (act: 'start' | 'finish' | 'cancel', id: string) => void
+  disableAccept?: boolean
+}) {
   // Late = waiting over 8 min (covers both 'new' and 'notified' states).
   const late = (order.status === 'new' || order.status === 'notified') && minsAgo(order.createdAt) > 8
   const mins = minsAgo(order.createdAt)
@@ -251,7 +365,13 @@ function KitchenCard({ order, onAction }: { order: OrderDTO; onAction: (act: 'st
 
       <div className="border-t border-dashed border-border pt-2 mt-1 flex gap-2">
         {order.status === 'new' || order.status === 'notified' ? (
-          <Button size="sm" className="btn-push flex-1" onClick={() => onAction('start', order.id)}>
+          <Button
+            size="sm"
+            className="btn-push flex-1"
+            disabled={disableAccept}
+            title={disableAccept ? 'Bạn đang pha một đơn khác — hoàn thành hoặc hủy đơn đó trước' : undefined}
+            onClick={() => onAction('start', order.id)}
+          >
             <Play className="size-3.5 mr-1" /> {isNotified ? 'Nhận pha' : 'Bắt đầu pha'}
           </Button>
         ) : (

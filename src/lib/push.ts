@@ -86,6 +86,12 @@ export async function sendNewOrderPush(order: OrderForPush): Promise<void> {
       targetView: 'kitchen',
       ts: Date.now(),
     },
+    // Custom sound (best-effort: Chrome ignores; Safari/iOS may honor).
+    sound: '/notif.mp3',
+    // Vibration pattern — honored on Android Chrome.
+    vibrate: [300, 150, 300, 150, 300],
+    silent: false,
+    requireInteraction: true,
     actions: [
       { action: 'accept', title: '✓ Nhận pha' },
       { action: 'view', title: '👀 Xem đơn' },

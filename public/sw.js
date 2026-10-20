@@ -77,6 +77,10 @@ self.addEventListener('push', (event) => {
     vibrate: VIBRATE_PATTERN,
     // Notification is NOT silent: we want sound + vibration when a vibration pattern is requested.
     silent: false,
+    // Custom notification sound — best-effort. Chrome currently ignores this
+    // field (it plays the OS default), but Safari and other browsers may honor
+    // it for installed PWAs.
+    sound: '/notif.mp3',
     requireInteraction: true, // keep notification visible until staff acts
     // badge: small monochrome icon for Android status bar.
     badge: '/icon-192.png',

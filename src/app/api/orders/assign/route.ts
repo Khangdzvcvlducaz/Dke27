@@ -22,6 +22,18 @@ export async function POST(req: NextRequest) {
     const order = await db.order.findUnique({ where: { id: orderId }, include: { items: true } })
     if (!order) return NextResponse.json({ error: 'Không thấy đơn' }, { status: 404 })
 
+    // 1-order-at-a-time rule applies to manual assignment too — the assigned
+    // staff must not already be preparing another order.
+    const inProgress = await db.order.findFirst({
+      where: { status: 'making', assignedTo: staffName },
+      select: { id: true, code: true },
+    })
+    if (inProgress && inProgress.id !== orderId) {
+      return NextResponse.json({
+        error: `${staffName} đang pha đơn ${inProgress.code}. Hoàn thành đơn đó trước khi giao đơn khác.`,
+      }, { status: 409 })
+    }
+
     const updated = await db.order.update({
       where: { id: orderId },
       data: { status: 'making', assignedTo: staffName },
