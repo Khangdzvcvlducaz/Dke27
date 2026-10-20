@@ -1,24 +1,17 @@
 #!/bin/sh
-echo "=== ENV CHECK ==="
-echo "DATABASE_URL=$DATABASE_URL"
-echo "PORT=$PORT"
-echo "node=$(which node 2>/dev/null || echo 'not found')"
-echo "npx=$(which npx 2>/dev/null || echo 'not found')"
-echo "bun=$(which bun 2>/dev/null || echo 'not found')"
-echo "prisma=$(ls node_modules/.bin/prisma 2>/dev/null || echo 'not found')"
-
-echo "=== db:push attempt 1 (npx) ==="
+echo "=== db init ==="
 mkdir -p /app/db
-npx prisma db push --accept-data-loss 2>&1 && echo "npx OK" || echo "npx FAILED"
 
-echo "=== db:push attempt 2 (bunx) ==="
-bunx prisma db push --accept-data-loss 2>&1 && echo "bunx OK" || echo "bunx FAILED"
+# Try sqlite3 directly — bypasses Prisma CLI entirely
+echo "=== sqlite3 schema ==="
+sqlite3 /app/db/custom.db < db/schema.sql 2>&1 && echo "sqlite3 OK" || echo "sqlite3 FAILED"
 
-echo "=== db:push attempt 3 (direct node) ==="
-node node_modules/prisma/build/index.js db push --accept-data-loss 2>&1 && echo "node OK" || echo "node FAILED"
+# Also try prisma db push as backup
+echo "=== prisma db push ==="
+npx prisma db push --accept-data-loss 2>&1 && echo "prisma OK" || echo "prisma FAILED (sqlite3 should have created tables)"
 
-echo "=== db file check ==="
-ls -la /app/db/ 2>&1 || echo "no db dir"
+echo "=== db check ==="
+sqlite3 /app/db/custom.db ".tables" 2>&1 || echo "can't check tables"
 
 echo "=== realtime ==="
 cd mini-services/realtime-sync && bun index.ts &
