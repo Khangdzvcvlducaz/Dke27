@@ -10,7 +10,7 @@ import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
 import {
   Bell, BellRing, Loader2, Send, Trash2,
-  Power, Smartphone, Apple, Info, ShieldCheck,
+  Power, Smartphone, Apple, Info, ShieldCheck, Volume2,
 } from 'lucide-react'
 import { useCafeStore } from '@/store/cafe-store'
 
@@ -210,6 +210,60 @@ export function ProfileSheet({ open, onOpenChange }: ProfileSheetProps) {
     }
   }
 
+  /**
+   * Test foreground sound + vibration independently of the Web Push pipeline.
+   * This is useful for staff to verify their device supports:
+   *   - Audio playback (autoplay unlocked after the user clicked "Vào làm việc")
+   *   - Vibration API (Android Chrome yes; iOS Safari no; desktop browsers mostly no)
+   *
+   * If neither works, the issue is platform/browser support — not our code.
+   * If only sound works (no vibration), the device doesn't support Vibration API.
+   */
+  function handleTestSound() {
+    let soundOk = false
+    let vibrateOk = false
+
+    // Play sound
+    try {
+      const audio = new Audio('/notif.mp3')
+      audio.currentTime = 0
+      void audio.play().then(() => {
+        soundOk = true
+      }).catch((err) => {
+        toast.error(`Không phát được âm thanh: ${err.message}. Trình duyệt có thể đang chặn autoplay.`)
+      })
+    } catch (e) {
+      toast.error('Không tạo được audio element')
+    }
+
+    // Vibrate
+    try {
+      if ('vibrate' in navigator) {
+        const result = navigator.vibrate([300, 150, 300, 150, 300])
+        if (result) {
+          vibrateOk = true
+          // Stop after 5 seconds so it doesn't loop forever
+          setTimeout(() => { try { navigator.vibrate(0) } catch {} }, 5000)
+        } else {
+          toast.error('Vibration API trả về false — thiết bị không hỗ trợ rung hoặc đang ở chế độ im lặng.')
+        }
+      } else {
+        toast.error('Trình duyệt này không hỗ trợ Vibration API. iOS Safari không hỗ trợ; Android Chrome có.')
+      }
+    } catch (e) {
+      toast.error(`Lỗi vibration: ${(e as Error).message}`)
+    }
+
+    // Summary toast after slight delay
+    setTimeout(() => {
+      const parts: string[] = []
+      if (soundOk) parts.push('🔊 âm thanh OK')
+      if (vibrateOk) parts.push('📳 rung OK')
+      if (parts.length === 0) parts.push('Không có thiết bị nào phản hồi')
+      toast.info(`Kết quả test: ${parts.join(' · ')}`)
+    }, 600)
+  }
+
   async function toggleShift(on: boolean) {
     if (!user?.staffId) return
     try {
@@ -312,13 +366,20 @@ export function ProfileSheet({ open, onOpenChange }: ProfileSheetProps) {
                   <>
                     <Button variant="outline" onClick={handleTest} disabled={busy} className="btn-push">
                       {busy ? <Loader2 className="size-4 mr-1 animate-spin" /> : <Send className="size-4 mr-1" />}
-                      Gửi thông báo thử
+                      Gửi thông báo thử (Push)
                     </Button>
                     <Button variant="outline" onClick={handleDisable} disabled={busy} className="text-destructive border-destructive">
                       <Trash2 className="size-4 mr-1" /> Gỡ thiết bị này
                     </Button>
                   </>
                 )}
+
+                {/* Always-available foreground sound + vibration test.
+                    Lets staff verify their device supports audio playback and
+                    Vibration API BEFORE going through the push subscription flow. */}
+                <Button variant="outline" onClick={handleTestSound} className="btn-push">
+                  <Volume2 className="size-4 mr-1" /> Test âm thanh + rung (foreground)
+                </Button>
               </div>
 
               {/* Shift toggle */}

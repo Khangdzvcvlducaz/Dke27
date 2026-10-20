@@ -4,10 +4,20 @@ import { io, Socket } from 'socket.io-client'
 
 let socket: Socket | null = null
 
+// IMPORTANT: the realtime-sync mini-service runs on port 3030 (separate from
+// Next.js on port 3000). The Caddy gateway routes to port 3030 ONLY when the
+// request URL contains ?XTransformPort=3030. Without this query, requests to
+// "/" go to Next.js (which doesn't speak socket.io) and the connection fails
+// silently — causing kitchen view to never receive realtime updates.
+const SOCKET_URL = '/?XTransformPort=3030'
+
 export function getSocket(room: string): Socket {
   if (socket && socket.connected) return socket
   if (!socket) {
-    socket = io('/', {
+    socket = io(SOCKET_URL, {
+      // The mini-service is configured with path: '/'. The Caddy gateway
+      // preserves the rest of the query string (EIO, transport, etc.) when
+      // it forwards to localhost:3030.
       path: '/',
       transports: ['websocket', 'polling'],
       reconnection: true,
@@ -17,8 +27,11 @@ export function getSocket(room: string): Socket {
     socket.on('connect', () => {
       console.log('[socket] connected', socket?.id)
     })
-    socket.on('disconnect', () => {
-      console.log('[socket] disconnected')
+    socket.on('disconnect', (reason) => {
+      console.log('[socket] disconnected:', reason)
+    })
+    socket.on('connect_error', (err) => {
+      console.warn('[socket] connect_error:', err.message)
     })
   }
   // join room
@@ -59,3 +72,4 @@ export function broadcastMenuUpdate(room: string) {
 export function broadcastStaffUpdate(room: string) {
   getSocket(room).emit('staff:update', { room })
 }
+

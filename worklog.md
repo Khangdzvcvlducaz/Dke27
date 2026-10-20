@@ -166,3 +166,34 @@ Stage Summary:
 - Vibration liên tục ở Kitchen view: setInterval 1500ms lặp pattern [300,150,300,150,300] khi wait.length>0 && !myInProgress && user.staffId; dừng ngay khi staff accept (myInProgress set) hoặc hết đơn chờ. UI indicator pulse báo "Thiết bị đang rung liên tục..." cho user biết.
 - 1-order-at-a-time rule: backend enforce (409 Conflict với inProgressCode trả về client), frontend disable button + show banner "Bạn đang pha đơn #XX" với quick actions. Áp dụng cho cả /api/orders/accept (SW click + kitchen button) và /api/orders/assign (admin manual). Staff phải done/cancel đơn hiện tại trước khi nhận đơn khác.
 - Không redesign gì — chỉ thêm audio element ẩn + 1 banner + 1 indicator trong kitchen view + prop disableAccept cho KitchenCard. Design system (cream/red, Be Vietnam Pro/Oswald, shadcn/ui, framer-motion) giữ nguyên.
+
+---
+Task ID: 4
+Agent: main (orchestrator)
+Task: Sửa 2 lỗi user báo: (1) Kitchen view không cập nhật đơn real-time khi cashier tạo đơn — phải tắt/mở app mới thấy; (2) Sound effect "Ho Ho Ho" và vibration không hoạt động.
+
+Work Log:
+- Chẩn đoán root cause: src/lib/socket-client.ts đang dùng `io('/', { path: '/' })` — URL không có `?XTransformPort=3030` nên Caddy gateway không route tới mini-service port 3030. Request đi thẳng tới Next.js port 3000 (không speak socket.io) → connection failed silently → không có order:new event tới kitchen view → không cập nhật real-time, không play sound, không vibrate.
+- Verify bằng curl:
+  - `http://localhost:3000/?XTransformPort=3030&EIO=4&transport=polling` → 200 nhưng trả HTML (Next.js ignored query)
+  - `http://localhost:81/?XTransformPort=3030&EIO=4&transport=polling` → 200 + trả `0{"sid":"...","upgrades":["websocket"]}` (socket.io handshake OK qua Caddy)
+  - `http://localhost:3000/` (no query) → 308 redirect (Next.js default)
+- Fix src/lib/socket-client.ts: đổi `io('/')` → `io('/?XTransformPort=3030')` + thêm `connect_error` listener để debug. Thêm comment giải thích routing rule.
+- Thêm "Test âm thanh + rung (foreground)" button trong profile-sheet.tsx (luôn visible cho staff, không phụ thuộc push subscription):
+  - `handleTestSound()`: tạo `new Audio('/notif.mp3')` + `audio.play()` → soundOk=true; nếu lỗi → toast.error giải thích autoplay block
+  - `navigator.vibrate([300,150,300,150,300])` + stop sau 5s → vibrateOk=true; nếu `'vibrate' in navigator` false → toast.error "Trình duyệt này không hỗ trợ Vibration API"
+  - Toast summary "🔊 âm thanh OK · 📳 rung OK" sau 600ms
+- Lint PASS.
+- Browser test 2 session song song (agent-browser --session kitchen + --session cashier):
+  - Cả 2 session mở http://localhost:81/ (qua Caddy gateway, mimic user preview panel)
+  - kitchen session: login Bếp A, console log "[socket] connected JtQB407ThdSz0VBNAAEF" → socket OK
+  - cashier session: login An (admin), POS view, click 2 món (Cà phê đen + Bạc xỉu = 37k), mở cart sheet, click "Gửi đơn → Quầy pha"
+  - 2 giây sau: kitchen session snapshot cho thấy đơn #10 đã xuất hiện trong "CHỜ PHA: 1" — code #10, 🏠 Tại chỗ, 🔔 Đã gửi thông báo, items 1× ☕ Cà phê đen + 1× 🥛 Bạc xỉu, total 37.000₫, button "Nhận pha" enabled. Tabbar badge "Quầy pha 1". Vibration indicator "Thiết bị đang rung liên tục..." hiện. KHÔNG cần reload.
+  - Click "Test âm thanh + rung" trong profile sheet → toast "Kết quả test: 🔊 âm thanh OK · 📳 rung OK" (headless Chrome hỗ trợ cả 2 API)
+
+Stage Summary:
+- Bug 1 (kitchen không real-time) FIXED: socket.io client giờ kết nối đúng qua Caddy → port 3030. Order mới từ cashier broadcast tới kitchen view ngay lập tức qua socket event, không cần reload.
+- Bug 2 (sound + vibration không hoạt động) FIXED: root cause là socket không fire event → playNotifSound() và vibration useEffect không bao giờ chạy. Sau khi fix Bug 1, cả 2 sẽ chạy khi có socket event. Thêm "Test" button để user verify device support độc lập với push pipeline.
+- Lưu ý cho user: Khi test qua Preview Panel (Caddy port 81), mọi thứ hoạt động. Nếu user mở thẳng http://localhost:3000 thì socket sẽ KHÔNG kết nối được (vì bypass Caddy) — cần dùng Preview Panel.
+- Vibration API: Android Chrome hỗ trợ (rung thật); iOS Safari KHÔNG hỗ trợ (sẽ hiện toast "không hỗ trợ"); desktop Chrome phần lớn không có motor (return false).
+- Audio autoplay: đã unlock sau khi user click "Vào làm việc" (user interaction) → audio.play() thành công.
