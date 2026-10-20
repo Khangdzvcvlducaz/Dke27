@@ -197,3 +197,58 @@ Stage Summary:
 - Lưu ý cho user: Khi test qua Preview Panel (Caddy port 81), mọi thứ hoạt động. Nếu user mở thẳng http://localhost:3000 thì socket sẽ KHÔNG kết nối được (vì bypass Caddy) — cần dùng Preview Panel.
 - Vibration API: Android Chrome hỗ trợ (rung thật); iOS Safari KHÔNG hỗ trợ (sẽ hiện toast "không hỗ trợ"); desktop Chrome phần lớn không có motor (return false).
 - Audio autoplay: đã unlock sau khi user click "Vào làm việc" (user interaction) → audio.play() thành công.
+
+---
+Task ID: 5
+Agent: main (orchestrator)
+Task: Sửa lỗi vibration không liên tục trên iOS + sound effect không chạy khi app đóng. User muốn "thống nhất luôn là khi nhận thông báo sẽ có tiếng soundeffect".
+
+Work Log:
+- Phân tích giới hạn platform:
+  - iOS Safari: KHÔNG hỗ trợ Vibration API (Apple policy, không sửa được). Chỉ rung qua iOS Settings → Sounds & Haptics.
+  - iOS Safari PWA (installed): HONOR field `sound` trong showNotification → âm thanh "Ho Ho Ho" chạy khi app đóng.
+  - Chrome (Android/Desktop): IGNORE field `sound` trong showNotification → chỉ phát tiếng "ting" default khi app đóng. KHÔNG thể override.
+  - Chrome tab mở (foreground/background): SW postMessage tới open tab → tab play audio "Ho Ho Ho".
+  - SW không thể play audio trực tiếp (no AudioContext in SW).
+- Update public/sw.js: push event handler thêm Step 1 — postMessage tới all open clients với `{ type: 'play-notif-sound', payload }` TRƯỚC khi showNotification. Comment rõ ràng tại sao cần (Chrome ignore sound field, SW không play audio được).
+- Update src/components/register-sw.tsx:
+  - Hoàn thiện message listener cho 'play-notif-sound': tạo new Audio('/notif.mp3'), append vào body (browser yêu cầu DOM element để play reliably), play().catch(), remove sau 5s.
+  - Deduplicate theo orderId: lưu window.__lastSoundKey + __lastSoundAt, nếu cùng key trong 5s thì skip (tránh double-play khi cả socket event lẫn SW postMessage đều fire cho cùng order).
+  - Dispatch CustomEvent 'dke-notif-received' để kitchen view trigger vibration burst ngay lập tức.
+  - Listen SW updatefound event → postMessage SKIP_WAITING → force update SW khi user quay lại app.
+- Update src/components/views/kitchen-view.tsx:
+  - Thêm `isIOS` detection (regex /iPad|iPhone|iPod/ test navigator.userAgent).
+  - playNotifSound(orderId?) — thêm deduplicate 5s theo orderId.
+  - socket 'order:new' / 'order:update' handler: gọi playNotifSound(o.id) với orderId để dedup.
+  - useEffect listen 'dke-notif-received' CustomEvent → navigator.vibrate([600,100,600,100,600]) burst (chỉ Android Chrome, skip iOS).
+  - Vibration pattern đổi từ [300,150,300,150,300] (5 segments, nhiều Android chỉ rung segment đầu) → [600] (single pulse, reliable). Vẫn dùng recursive setTimeout 650ms loop (không gap).
+  - Sound loop fallback cho iOS / non-vibration devices: useEffect play audio_ref mỗi 3s khi wait.length>0 && !myInProgress && !hasVibration. Dừng khi staff accept hoặc hết wait.
+  - Wake Lock API: request 'screen' wake lock khi có đơn chờ (tránh screen tắt → setTimeout throttle → vibration dừng). Re-acquire on visibility change.
+  - Vibration indicator UI: 3 nhánh hiển thị theo platform:
+    - iOS: "Đang phát âm thanh Ho Ho Ho liên tục... iOS không hỗ trợ rung; bật âm thanh hệ thống để nghe rõ."
+    - Android Chrome (vibrate in navigator): "Thiết bị đang rung liên tục + phát âm thanh..."
+    - Desktop/no vibration: "Đang phát âm thanh... thiết bị này không hỗ trợ rung."
+- Update src/components/profile-sheet.tsx:
+  - Thay vì note chung chung, thay bằng danh sách specific:
+    - iOS Safari (PWA cài màn hình chính): âm thanh Ho Ho Ho chạy khi nhận thông báo (kể cả app đóng). Rung: iOS KHÔNG hỗ trợ Vibration API — chỉ rung nếu bật Settings iOS → Sounds & Haptics.
+    - Android Chrome: âm thanh Ho Ho Ho chạy khi app đang mở. Khi app đóng hoàn toàn, Chrome chỉ phát tiếng "ting" mặc định — không thể override.
+    - Desktop Chrome: như Android Chrome, chỉ "ting" khi app đóng.
+    - Giữ tab app mở để luôn nghe âm thanh Ho Ho Ho khi có đơn mới.
+- Lint PASS.
+- Browser test (agent-browser 2 session qua Caddy port 81):
+  - kitchen session: login Bếp A → console "[socket] connected WaZcOomku_rMq4vNAAAK" ✓
+  - cashier session: login An, POS, click 2 món (Cà phê đen + Bạc xỉu), mở cart, click "Gửi đơn"
+  - 3 giây sau: kitchen session snapshot cho thấy đơn #11 đã trong "CHỜ PHA: 1" realtime, vibration indicator "Thiết bị đang rung liên tục + phát âm thanh..." hiện. KHÔNG cần reload ✓
+  - Profile sheet có nút "Test âm thanh + rung (foreground)" → click → toast "Kết quả test: 🔊 âm thanh OK · 📳 rung OK"
+  - SW registration status: hasController=true, hasReg=true ✓
+  - Simulate SW postMessage (dispatchEvent MessageEvent) → register-sw.tsx handler chạy, tạo new Audio('/notif.mp3'), append body, play. window.__lastSoundKey được set ✓
+  - Dedup test: dispatch 2 lần liên tiếp với cùng orderId → lần 2 bị skip (firstAt === secondAt) ✓
+  - Audio element DOM: 2 element (1 của kitchen view audioRef, 1 của register-sw message handler) ✓
+
+Stage Summary:
+- Vibration iOS: KHÔNG thể sửa (Apple policy). Đã thêm sound loop fallback — iOS sẽ phát "Ho Ho Ho" mỗi 3s liên tục khi có đơn chờ (thay vì rung).
+- Vibration Android: pattern đơn giản [600] + recursive setTimeout 650ms loop = rung liên tục không gap, reliable across Android versions.
+- Sound effect khi app đóng: iOS PWA → works (Safari honor sound field). Chrome → KHÔNG thể (Chrome ignore sound field, SW không play audio). Giải pháp: SW postMessage tới open tab → tab play audio. User PHẢI giữ tab app mở để nghe "Ho Ho Ho" khi có đơn mới.
+- Test button "Test âm thanh + rung" cho phép user verify device support độc lập với push pipeline.
+- Profile sheet có clear platform-specific guidance (iOS/Android/Desktop) + "Giữ tab app mở" reminder.
+- Tất cả vẫn works realtime (socket fix từ task trước) + 1-order-at-a-time rule (task trước) + push subscription (task 2) + PWA manifest/sw (task 2).

@@ -434,11 +434,19 @@ export function ProfileSheet({ open, onOpenChange }: ProfileSheetProps) {
           </section>
 
           <Separator />
-          <div className="text-xs text-muted-foreground flex items-start gap-2">
-            <Info className="size-3.5 mt-0.5 shrink-0" />
-            <p>
-              Thông báo dùng Web Push chuẩn (RFC 8030). Rung chỉ hoạt động trên thiết bị hỗ trợ Vibration API (Android). iOS tôn trọng Settings hệ thống (DND, rung, âm thanh).
-            </p>
+          <div className="text-xs text-muted-foreground space-y-2">
+            <div className="flex items-start gap-2">
+              <Info className="size-3.5 mt-0.5 shrink-0" />
+              <div>
+                <b>Giới hạn platform — đọc kỹ:</b>
+                <ul className="list-disc pl-4 mt-1 space-y-1">
+                  <li><b>iOS Safari (PWA cài màn hình chính)</b>: âm thanh "Ho Ho Ho" chạy khi nhận thông báo (kể cả app đóng). Rung: iOS KHÔNG hỗ trợ Vibration API trong trình duyệt — chỉ rung nếu bật trong <b>Settings iOS → Sounds & Haptics</b>.</li>
+                  <li><b>Android Chrome</b>: âm thanh "Ho Ho Ho" chạy khi app đang mở (foreground/background). Khi app đóng hoàn toàn, Chrome chỉ phát tiếng "ting" mặc định — không thể override (Chrome ignore field <code>sound</code>).</li>
+                  <li><b>Desktop Chrome</b>: như Android Chrome, chỉ "ting" khi app đóng.</li>
+                  <li><b>Giữ tab app mở</b> để luôn nghe âm thanh "Ho Ho Ho" khi có đơn mới.</li>
+                </ul>
+              </div>
+            </div>
           </div>
         </div>
 

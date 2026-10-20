@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { getSocket, broadcastOrderUpdate } from '@/lib/socket-client'
-import { Play, Check, X, Clock, Flame, Hourglass, Vibrate, AlertCircle } from 'lucide-react'
+import { Play, Check, X, Clock, Flame, Hourglass, Vibrate, AlertCircle, Volume2 } from 'lucide-react'
 
 export interface OrderDTO {
   id: string
@@ -41,6 +41,13 @@ export function KitchenView() {
   const [loading, setLoading] = useState(true)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
+  // Detect iOS — Safari on iPhone/iPad does NOT support the Vibration API
+  // at all (Apple policy). We show a clear message to the user explaining
+  // that only the OS-level notification settings can vibrate iOS.
+  const isIOS = typeof navigator !== 'undefined' &&
+    /iPad|iPhone|iPod/.test(navigator.userAgent) &&
+    !((window as any).MSStream)
+
   // "My in-progress order" = the order this staff member is currently preparing
   // (status='making' AND assignedTo === user.name). When this is set, the staff
   // cannot accept another order until they finish or cancel this one.
@@ -56,7 +63,13 @@ export function KitchenView() {
       })
       if (o.by !== user?.name) {
         toast.success(`🔔 Đơn mới ${o.code} — ${o.by}`)
-        playNotifSound()
+        // Note: audio playback is now handled GLOBALLY by register-sw.tsx
+        // (listens for 'play-notif-sound' messages from the SW AND plays
+        // when socket 'order:new' fires — but deduplicated by orderId to
+        // avoid double-playing when both paths fire for the same order).
+        // We only call playNotifSound here as a fallback in case the SW
+        // path is unavailable (e.g., dev mode without SW registered).
+        playNotifSound(o.id)
         tryBeep()
       }
     }
@@ -75,9 +88,8 @@ export function KitchenView() {
       })
       if (o.status === 'new' || o.status === 'notified') {
         setWait((w) => (w.some((x) => x.id === o.id) ? w : [o, ...w]))
-        // Also play sound + beep on remote notifications (other devices).
         if (o.by !== user?.name) {
-          playNotifSound()
+          playNotifSound(o.id)
         }
       }
     }
@@ -94,6 +106,21 @@ export function KitchenView() {
       socket.off('order:delete', onDelete)
     }
   }, [user])
+
+  // Listen for the global 'dke-notif-received' event (dispatched by
+  // register-sw.tsx when the SW postMessages that a push arrived). On
+  // receiving this, we trigger a vibration burst immediately so the staff
+  // gets haptic feedback on Android Chrome even before the wait list
+  // refetches from the API.
+  useEffect(() => {
+    if (isIOS) return // iOS doesn't support Vibration API
+    if (!('vibrate' in navigator)) return
+    const onPushReceived = () => {
+      try { navigator.vibrate([600, 100, 600, 100, 600]) } catch {}
+    }
+    window.addEventListener('dke-notif-received', onPushReceived)
+    return () => window.removeEventListener('dke-notif-received', onPushReceived)
+  }, [isIOS])
 
   // Continuous vibration while there is at least one order waiting to be
   // accepted AND the current staff is not already preparing another order.
@@ -172,17 +199,64 @@ export function KitchenView() {
     }
   }, [wait.length, myInProgress, user?.staffId])
 
+  // Sound loop fallback for iOS / devices without Vibration API.
+  // On Android Chrome, we have continuous vibration to alert staff.
+  // On iOS Safari, vibration is NOT supported (Apple policy). So we
+  // loop the "Ho Ho Ho" sound effect continuously as a fallback alert.
+  // Stops when: staff accepts an order (myInProgress set) OR no more
+  // wait orders OR the user navigates away.
+  useEffect(() => {
+    if (!user?.staffId) return
+    const needsAttention = wait.length > 0 && !myInProgress
+    if (!needsAttention) return
+    // Only loop sound if vibration is unavailable (iOS or desktop).
+    const hasVibration = !isIOS && 'vibrate' in navigator
+    if (hasVibration) return // vibration handles the alert — sound would be annoying
+    // For iOS / non-vibration devices, loop the sound every ~3 seconds.
+    const audio = audioRef.current
+    if (!audio) return
+    let active = true
+    const loop = () => {
+      if (!active) return
+      try {
+        audio.currentTime = 0
+        void audio.play().catch(() => {})
+      } catch {}
+      // The clip is ~2.5 seconds. Replay every 3s for continuous alert.
+      timeoutId = setTimeout(loop, 3000)
+    }
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    loop()
+    return () => {
+      active = false
+      if (timeoutId) clearTimeout(timeoutId)
+      try { audio.pause() } catch {}
+    }
+  }, [wait.length, myInProgress, user?.staffId, isIOS])
+
   /**
    * Play the uploaded "Ho Ho Ho Merry Christmas" sound for new-order notifications.
    * Foreground playback works without any extra permission since the staff has
    * already clicked to log in (satisfying browser autoplay policy).
    *
-   * Also triggered when the SW receives a push event and postMessages to the
-   * page (see public/sw.js + register-sw.tsx) — this is the only way to play
-   * custom audio on push, since Chrome ignores the `sound` field in
-   * showNotification() and SWs cannot play audio directly.
+   * Deduplication: if `orderId` is provided and the same order's sound was
+   * played within the last 5 seconds, this is a no-op. This avoids
+   * double-playing when both the socket event AND the SW postMessage fire
+   * for the same order.
    */
-  function playNotifSound() {
+  function playNotifSound(orderId?: string) {
+    if (orderId) {
+      const key = orderId
+      const now = Date.now()
+      const lastKey = (window as any).__lastSoundKey || ''
+      const lastAt = (window as any).__lastSoundAt || 0
+      if (key === lastKey && now - lastAt < 5000) {
+        // Same sound played <5s ago — skip to avoid duplicate.
+        return
+      }
+      ;(window as any).__lastSoundKey = key
+      ;(window as any).__lastSoundAt = now
+    }
     try {
       const a = audioRef.current
       if (!a) return
@@ -305,12 +379,26 @@ export function KitchenView() {
         </div>
       )}
 
-      {/* Vibration status indicator — shows when the device is currently vibrating. */}
+      {/* Status indicator — shows when there's an order waiting. The message
+          differs by platform: Android Chrome vibrates + plays sound; iOS only
+          plays sound (Apple doesn't support Vibration API in the browser). */}
       {wait.length > 0 && !myInProgress && user?.staffId && (
-        <div className="bg-primary/10 border border-primary/30 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-primary animate-pulse">
-          <Vibrate className="size-4" />
-          <span>Thiết bị đang rung liên tục để báo có đơn chờ — bấm "Nhận pha" để dừng.</span>
-        </div>
+        isIOS ? (
+          <div className="bg-primary/10 border border-primary/30 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-primary animate-pulse">
+            <Volume2 className="size-4" />
+            <span>🔔 Đang phát âm thanh "Ho Ho Ho" liên tục để báo có đơn chờ — bấm "Nhận pha" để dừng. iOS không hỗ trợ rung; bật âm thanh hệ thống để nghe rõ.</span>
+          </div>
+        ) : 'vibrate' in navigator ? (
+          <div className="bg-primary/10 border border-primary/30 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-primary animate-pulse">
+            <Vibrate className="size-4" />
+            <span>Thiết bị đang rung liên tục + phát âm thanh để báo có đơn chờ — bấm "Nhận pha" để dừng.</span>
+          </div>
+        ) : (
+          <div className="bg-primary/10 border border-primary/30 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-primary animate-pulse">
+            <Volume2 className="size-4" />
+            <span>🔔 Đang phát âm thanh để báo có đơn chờ — thiết bị này không hỗ trợ rung.</span>
+          </div>
+        )
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
