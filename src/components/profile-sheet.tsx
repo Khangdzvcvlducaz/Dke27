@@ -223,13 +223,23 @@ export function ProfileSheet({ open, onOpenChange }: ProfileSheetProps) {
     let soundOk = false
     let vibrateOk = false
 
-    // Play sound
+    // Play sound — append to body so the audio element isn't garbage
+    // collected mid-playback. Remove when playback ends.
     try {
       const audio = new Audio('/notif.mp3')
       audio.currentTime = 0
+      audio.style.display = 'none'
+      document.body.appendChild(audio)
+      audio.addEventListener('ended', () => {
+        try { document.body.removeChild(audio) } catch (e) {}
+      })
+      audio.addEventListener('error', () => {
+        try { document.body.removeChild(audio) } catch (e) {}
+      })
       void audio.play().then(() => {
         soundOk = true
       }).catch((err) => {
+        try { document.body.removeChild(audio) } catch (e) {}
         toast.error(`Không phát được âm thanh: ${err.message}. Trình duyệt có thể đang chặn autoplay.`)
       })
     } catch (e) {

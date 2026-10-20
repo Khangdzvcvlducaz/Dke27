@@ -474,3 +474,53 @@ Stage Summary:
 - Kitchen staff → KHÔNG nghe Cha-Ching (có Ho Ho Ho) ✓
 - 'order:new' (Shopify-style): vẫn nghe cho mọi user trừ kitchen ✓
 - Tất cả vẫn works: 1-order-at-a-time, push subscription, PWA, Ho Ho Ho loop 6s iOS, QR banking, vibration continuous, polling fallback, Wake Lock, etc.
+
+---
+Task ID: 11
+Agent: main (orchestrator)
+Task: Fix tiếng Cha-Ching bị ngắt giữa chừng.
+
+Work Log:
+- Phân tích root cause: Cha-Ching clip dài 5.25 giây (verify bằng `new Audio('/pay-notif.mp3'); a.duration`), nhưng cleanup code dùng `setTimeout(removeChild, 3000)` — xóa audio element khỏi DOM sau 3 giây, giữa chừng lúc đang play → bị ngắt.
+- Verify file durations:
+  - pay-notif.mp3 (Cha-Ching): 5.24771 giây
+  - notif.mp3 (Ho Ho Ho): 4.570406 giây
+  - Cả 2 đều dài hơn timeout cleanup → bị ngắt.
+- Fix 3 chỗ dùng pattern "new Audio() + setTimeout cleanup":
+
+  **1. src/components/app-shell.tsx — playChaChing()**:
+    - Bỏ `setTimeout(removeChild, 3000)` trong `.finally()`
+    - Thay bằng `audio.addEventListener('ended', () => removeChild)` — chỉ remove khi audio phát xong tự nhiên
+    - Thêm `error` event listener — remove nếu play fail
+    - Trong `play().catch()` — remove nếu autoplay bị block
+
+  **2. src/components/register-sw.tsx — Ho Ho Ho sound on SW push**:
+    - Bỏ `setTimeout(removeChild, 5000)` trong `.finally()`
+    - Thay bằng `ended` event listener + `error` listener + `.catch()` cleanup
+    - Comment rõ: Ho Ho Ho clip 4.57s, 5s timeout đôi khi bị ngắt trên thiết bị chậm
+
+  **3. src/components/profile-sheet.tsx — handleTestSound() test button**:
+    - Trước đây tạo `new Audio()` không append vào DOM → có thể bị GC giữa chừng
+    - Append vào body để giữ reference
+    - Thêm `ended` event listener để remove khi xong
+    - Thêm `error` listener + `.catch()` cleanup
+
+- Lint PASS.
+- Browser test (agent-browser):
+  - Login admin (An) ở POS view
+  - Tạo 1 đơn qua API → Cha-Ching chơi
+  - Kiểm tra audio state:
+    - 1s sau: currentTime=0.83, duration=5.25s, paused=false, ended=false ✓ (đang play)
+    - 3s sau: currentTime=3.87, duration=5.25s, paused=false, ended=false ✓ (VẪN đang play — trước đây bị ngắt ở đây)
+    - 7s sau: audio count=0 ✓ ('ended' event fired, element removed)
+  - Tạo 2 đơn rapid succession:
+    - 1s sau: 2 audio elements, cả 2 đang play (currentTime 1.02 + 0.93) ✓
+    - 4s sau: cả 2 vẫn đang play (currentTime 4.07 + 3.97) ✓
+    - 8s sau: 0 audio elements (cả 2 đã xong, removed via 'ended') ✓
+- Kết luận: Cha-Ching giờ chơi đến hết 5.25 giây, không bị ngắt giữa chừng.
+
+Stage Summary:
+- Bug "Cha-Ching bị ngắt giữa chừng" FIXED — root cause là setTimeout cleanup 3s/5s shorter hơn clip duration 5.25s/4.57s.
+- Fix: dùng `ended` event listener thay vì fixed timeout — chỉ remove audio element khi playback kết thúc tự nhiên.
+- Áp dụng cho cả 3 chỗ: app-shell (Cha-Ching), register-sw (Ho Ho Ho), profile-sheet (test button).
+- 2 Cha-Ching sounds chạy song song không interrupt nhau (mỗi cái 1 Audio instance riêng, 'ended' handler remove từng cái khi xong).

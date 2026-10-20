@@ -65,10 +65,20 @@ export function AppShell() {
       const audio = new Audio('/pay-notif.mp3')
       audio.style.display = 'none'
       document.body.appendChild(audio)
-      void audio.play().catch(() => {}).finally(() => {
-        setTimeout(() => {
-          try { document.body.removeChild(audio) } catch (e) {}
-        }, 3000)
+      // Remove the audio element when playback ENDS — not after a fixed
+      // timeout. The Cha-Ching clip is ~5.25 seconds long; using a 3-second
+      // timeout was interrupting it mid-play ("bị ngắt giữa chừng").
+      // The 'ended' event fires when the audio finishes naturally.
+      audio.addEventListener('ended', () => {
+        try { document.body.removeChild(audio) } catch (e) {}
+      })
+      // Also clean up if playback fails to start (so we don't leak elements).
+      audio.addEventListener('error', () => {
+        try { document.body.removeChild(audio) } catch (e) {}
+      })
+      void audio.play().catch(() => {
+        // Autoplay blocked — clean up immediately.
+        try { document.body.removeChild(audio) } catch (e) {}
       })
     } catch {}
   }

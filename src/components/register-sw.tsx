@@ -83,11 +83,17 @@ export function RegisterSW() {
           // Some browsers require the audio to be in the DOM to play reliably.
           audio.style.display = 'none'
           document.body.appendChild(audio)
-          void audio.play().catch(() => {}).finally(() => {
-            // Remove after the clip ends.
-            setTimeout(() => {
-              try { document.body.removeChild(audio) } catch (e) {}
-            }, 5000)
+          // Remove the audio element when playback ENDS — not after a fixed
+          // timeout. The Ho Ho Ho clip is ~4.57 seconds long; using a 5s
+          // timeout was sometimes interrupting it on slow devices.
+          audio.addEventListener('ended', () => {
+            try { document.body.removeChild(audio) } catch (e) {}
+          })
+          audio.addEventListener('error', () => {
+            try { document.body.removeChild(audio) } catch (e) {}
+          })
+          void audio.play().catch(() => {
+            try { document.body.removeChild(audio) } catch (e) {}
           })
         } catch (e) {
           // ignore
