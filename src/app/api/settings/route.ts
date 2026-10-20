@@ -11,6 +11,7 @@ export async function GET() {
       name: cafe?.name ?? 'Đông Không Em?',
       adminName: cafe?.adminName ?? 'Admin',
       logo: cafe?.logo ?? null,
+      qrCode: cafe?.qrCode ?? null,
       hasPin: !!cafe?.pinHash,
     })
   } catch (e) {
@@ -51,6 +52,21 @@ export async function POST(req: NextRequest) {
 
     if (action === 'clearLogo') {
       await db.cafe.update({ where: { id: 'default' }, data: { logo: null } })
+      return NextResponse.json({ ok: true })
+    }
+
+    // Banking QR code — admin only. Stored as base64 data URL in the Cafe
+    // table. Used by the Pay view's "Chuyển khoản" button to show the
+    // customer a QR they can scan with their banking app.
+    if (action === 'setQrCode') {
+      const { qrCode } = body // dataURL
+      if (qrCode && qrCode.length > 2500000) return NextResponse.json({ error: 'QR quá lớn' }, { status: 400 })
+      await db.cafe.upsert({ where: { id: 'default' }, update: { qrCode }, create: { id: 'default', qrCode } })
+      return NextResponse.json({ ok: true })
+    }
+
+    if (action === 'clearQrCode') {
+      await db.cafe.update({ where: { id: 'default' }, data: { qrCode: null } })
       return NextResponse.json({ ok: true })
     }
 

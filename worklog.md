@@ -295,3 +295,65 @@ Stage Summary:
 - Bug 2 (sound loop 6s) FIXED: setTimeout(loop, 6000) thay vì 3000.
 - Dedup toast/sound FIXED: useRef<Set> synchronous, không dựa vào async React state.
 - Tất cả vẫn works: 1-order-at-a-time rule, push subscription, PWA, vibration continuous, soundeffect "Ho Ho Ho", iOS sound loop fallback, Wake Lock, etc.
+
+---
+Task ID: 7
+Agent: main (orchestrator)
+Task: Tương tự kitchen, pay view nhận thông báo + sound "Cha-Ching" khi bếp bấm "Xong món". Khi bấm "Chuyển khoản" → dialog upload QR banking (admin only).
+
+Work Log:
+- Copy /home/z/my-project/upload/YTSave.to_YouTube_Media_EuLJv2qONRY_Cha-Ching-Money-SOUND-HD-THE-LUCKY-SOUND_009_vbr.mp3 → /home/z/my-project/public/pay-notif.mp3 (57KB).
+- Update prisma/schema.prisma: thêm qrCode String? vào Cafe model (base64 data URL, admin upload).
+- bun run db:push — schema sync OK.
+- Update /api/settings route:
+  - GET: trả thêm qrCode field
+  - POST: thêm action 'setQrCode' (admin upload, resize max 600px, base64 dataURL, check size <2.5MB) và 'clearQrCode'
+- Tạo src/components/qr-payment-sheet.tsx:
+  - Sheet dialog mở khi bấm "Chuyển khoản"
+  - Hiển thị order summary (total, customer, tableCode)
+  - Nếu có QR: hiện ảnh QR + 2 nút "Thay QR khác" (admin only) + "Xóa" (admin only)
+  - Nếu chưa có QR: hiện upload form (admin only) — staff chỉ thấy message "Yêu cầu Admin vào mục Cài đặt để tải QR lên trước"
+  - Hướng dẫn khách 4 bước (mở app ngân hàng → quét QR → kiểm tra số tiền → xác nhận)
+  - Nút "Đã nhận tiền chuyển khoản" → gọi onConfirmPaid(orderId) → mark order paid với payMethod='transfer'
+  - Permission check: isAdmin = user.role === 'admin' — chỉ admin thấy upload buttons
+- Update src/components/views/pay-view.tsx:
+  - Thêm audioRef + <audio src="/pay-notif.mp3" preload="auto" /> ẩn
+  - seenOrderIdsRef = useRef<Set<string>>(new Set()) — synchronous dedup
+  - socket 'order:new' + 'order:update' handler: khi status='done' → playPaySound() + toast "💰 Đơn X xong — chờ thu tiền Y₫"
+  - socket.on('connect') → re-join room + void load() (reconnect logic)
+  - POLLING FALLBACK: setInterval(poll, 10000) fetch /api/orders?status=done, setOrders chỉ nếu set thay đổi, phát hiện new orders qua polling cũng play sound + toast
+  - visibilitychange listener → poll khi tab visible lại
+  - Header indicator: "Cha-Ching khi có đơn xong" + Volume2 icon
+  - Nút "Chuyển khoản" đổi từ pay('transfer', o.id) → openQrSheet(o) (mở QrPaymentSheet)
+  - Render <QrPaymentSheet open={qrOpen} onOpenChange={setQrOpen} order={qrOrder} onConfirmPaid={(orderId) => void pay('transfer', orderId)} />
+- Lint PASS.
+- Browser test (agent-browser 2 session qua Caddy port 81):
+  - kitchen session: login Bếp A, "[socket] connected" ✓
+  - cashier session: login An (admin), chuyển sang Pay view
+  - Tạo đơn #16 qua API (Anh Pay Test, 2× Cà phê đen = 30.000₫)
+  - Kitchen session: nhận đơn realtime (Nhận pha button hiện)
+  - Kitchen click "Nhận pha" → đơn sang "Đang pha" + "Xong món" button hiện
+  - Kitchen click "Xong món" → 3 giây sau:
+    - Pay view (cashier session): đơn #16 xuất hiện trong danh sách ✓
+    - Header indicator: "Cha-Ching khi có đơn xong" ✓
+    - Toast: "💰 Đơn #16 xong — chờ thu tiền 30.000₫" ✓ (chỉ 1 lần nhờ dedup ref)
+  - Cashier click "Chuyển khoản" → QR Sheet mở: "🏦 CHUYỂN KHOẢN — #16", order summary (TỔNG TIỀN 30.000₫, Khách: Anh Pay Test · Bàn 2), upload area "Tải QR lên" (admin) ✓
+  - Upload test-qr.png (256x256 QR-like image generated via sharp):
+    - Toast "✓ Đã lưu QR chuyển khoản — mọi thiết bị sẽ thấy" ✓
+    - QR image hiện trong dialog ✓
+    - "Thay QR khác" + "Xóa" buttons hiện (admin only) ✓
+    - Hướng dẫn khách 4 bước hiện ✓
+  - Verify DB: qrCode saved, length=3578 (base64 data URL) ✓
+  - Click "Đã nhận tiền chuyển khoản" → toast "💰 An đã thu 30.000₫ (chuyển khoản)" ✓
+  - Order #16 biến mất khỏi pay view (status=paid) ✓
+
+Stage Summary:
+- Pay view nhận đơn real-time khi bếp bấm "Xong món" (qua server-side socket broadcast + polling fallback + re-join room on reconnect).
+- Sound "Cha-Ching Money" phát khi đơn chuyển sang 'done' (foreground playback, audio element unlocked bởi login click).
+- Toast "💰 Đơn X xong — chờ thu tiền Y₫" chỉ hiện 1 lần (synchronous ref dedup).
+- Nút "Chuyển khoản" mở QR banking dialog:
+  - Admin: upload/replace/clear QR (persisted to DB, mọi thiết bị thấy)
+  - Staff: chỉ xem QR (read-only)
+  - Order summary + hướng dẫn khách scan
+  - "Đã nhận tiền chuyển khoản" → mark order paid với payMethod='transfer'
+- Tất cả vẫn works: 1-order-at-a-time, push subscription, PWA, vibration continuous (kitchen), Ho Ho Ho sound (kitchen), polling fallback, server-side broadcast, etc.

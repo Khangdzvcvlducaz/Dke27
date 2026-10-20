@@ -1,32 +1,53 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import { useCafeStore } from '@/store/cafe-store'
 import { fmtVND, fmtTime } from '@/lib/format'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { getSocket, broadcastOrderUpdate } from '@/lib/socket-client'
-import { Printer, Banknote, Landmark, Check } from 'lucide-react'
+import { QrPaymentSheet } from '@/components/qr-payment-sheet'
+import { Printer, Banknote, Landmark, Volume2 } from 'lucide-react'
 import type { OrderDTO } from './kitchen-view'
 
 export function PayView() {
   const user = useCafeStore((s) => s.user)
   const [orders, setOrders] = useState<OrderDTO[]>([])
   const [loading, setLoading] = useState(true)
+  const [qrOpen, setQrOpen] = useState(false)
+  const [qrOrder, setQrOrder] = useState<OrderDTO | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  // Synchronous set of recently-announced order IDs — dedup the sound + toast
+  // when both server-side AND client-side broadcast fire for the same order
+  // (similar to kitchen view).
+  const seenOrderIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     void load()
     const socket = getSocket('cafe')
     const onNew = (o: OrderDTO) => {
-      if (o.status === 'done') {
-        setOrders((list) => [o, ...list.filter((x) => x.id !== o.id)])
-      }
+      if (o.status !== 'done') return
+      // Synchronous dedup using ref.
+      if (seenOrderIdsRef.current.has(o.id)) return
+      seenOrderIdsRef.current.add(o.id)
+      setTimeout(() => { seenOrderIdsRef.current.delete(o.id) }, 30000)
+      setOrders((list) => [o, ...list.filter((x) => x.id !== o.id)])
+      // Play Cha-Ching sound + toast when kitchen marks an order as done.
+      playPaySound()
+      toast.success(`💰 Đơn ${o.code} xong — chờ thu tiền ${fmtVND(o.total)}`)
     }
     const onUpdate = (o: OrderDTO) => {
       if (o.status === 'done') {
+        // Dedup: if not yet announced, play sound.
+        if (!seenOrderIdsRef.current.has(o.id)) {
+          seenOrderIdsRef.current.add(o.id)
+          setTimeout(() => { seenOrderIdsRef.current.delete(o.id) }, 30000)
+          playPaySound()
+          toast.success(`💰 Đơn ${o.code} xong — chờ thu tiền ${fmtVND(o.total)}`)
+        }
         setOrders((list) => [o, ...list.filter((x) => x.id !== o.id)])
       } else if (o.status === 'paid' || o.status === 'canceled') {
         setOrders((list) => list.filter((x) => x.id !== o.id))
@@ -38,12 +59,77 @@ export function PayView() {
     socket.on('order:new', onNew)
     socket.on('order:update', onUpdate)
     socket.on('order:delete', onDelete)
+    // Re-join room on reconnect — same pattern as kitchen view.
+    socket.on('connect', () => {
+      socket.emit('join', 'cafe')
+      void load()
+    })
     return () => {
       socket.off('order:new', onNew)
       socket.off('order:update', onUpdate)
       socket.off('order:delete', onDelete)
+      socket.off('connect')
     }
   }, [user])
+
+  // POLLING FALLBACK: refetch done orders every 10 seconds to catch any
+  // socket events missed (network drop, tab sleep, etc.). Same pattern as
+  // kitchen view.
+  useEffect(() => {
+    if (!user) return
+    let active = true
+    const poll = async () => {
+      if (!active) return
+      try {
+        const r = await fetch('/api/orders?status=done')
+        const d = await r.json()
+        if (!active) return
+        const newOrders: OrderDTO[] = d.orders || []
+        setOrders((prev) => {
+          // Detect new orders that arrived via polling (not via socket).
+          // Play sound for those that we haven't announced yet.
+          for (const no of newOrders) {
+            if (!prev.some((o) => o.id === no.id) && !seenOrderIdsRef.current.has(no.id)) {
+              seenOrderIdsRef.current.add(no.id)
+              setTimeout(() => { seenOrderIdsRef.current.delete(no.id) }, 30000)
+              playPaySound()
+              toast.success(`💰 Đơn ${no.code} xong — chờ thu tiền ${fmtVND(no.total)}`)
+            }
+          }
+          const sameSet = prev.length === newOrders.length && prev.every((o, i) => o.id === newOrders[i]?.id)
+          return sameSet ? prev : newOrders
+        })
+      } catch (e) {
+        // Network error — retry next tick.
+      }
+    }
+    const interval = setInterval(poll, 10000)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void poll()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      active = false
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [user])
+
+  /**
+   * Play the uploaded "Cha-Ching Money" sound when kitchen marks an order
+   * as done. The audio element is unlocked by the user clicking "Vào làm
+   * việc" (login button) — satisfies browser autoplay policy.
+   */
+  function playPaySound() {
+    try {
+      const a = audioRef.current
+      if (!a) return
+      a.currentTime = 0
+      void a.play().catch(() => {
+        // Autoplay blocked or audio not ready — ignore (toast still fires).
+      })
+    } catch {}
+  }
 
   async function load() {
     setLoading(true)
@@ -74,6 +160,11 @@ export function PayView() {
   }
 
   const sum = orders.reduce((s, o) => s + o.total, 0)
+
+  function openQrSheet(o: OrderDTO) {
+    setQrOrder(o)
+    setQrOpen(true)
+  }
 
   function printReceipt(o: OrderDTO) {
     const w = window.open('', '_blank', 'width=320,height=600')
@@ -114,6 +205,9 @@ export function PayView() {
 
   return (
     <div className="space-y-4">
+      {/* Hidden audio element for the "Cha-Ching Money" sound. */}
+      <audio ref={audioRef} src="/pay-notif.mp3" preload="auto" />
+
       <div className="bg-primary text-primary-foreground p-4 rounded-2xl shadow-md">
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -122,6 +216,12 @@ export function PayView() {
             </div>
             <b className="text-xl" style={{ fontFamily: 'var(--font-oswald)' }}>{fmtVND(sum)}</b>
           </div>
+          {orders.length > 0 && (
+            <div className="flex items-center gap-1 text-xs opacity-90">
+              <Volume2 className="size-4" />
+              <span>Cha-Ching khi có đơn xong</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -166,7 +266,7 @@ export function PayView() {
                   <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 btn-push flex-1" onClick={() => pay('cash', o.id)}>
                     <Banknote className="size-3.5 mr-1" /> Tiền mặt
                   </Button>
-                  <Button size="sm" className="btn-push flex-1" onClick={() => pay('transfer', o.id)}>
+                  <Button size="sm" className="btn-push flex-1" onClick={() => openQrSheet(o)}>
                     <Landmark className="size-3.5 mr-1" /> Chuyển khoản
                   </Button>
                 </div>
@@ -175,6 +275,13 @@ export function PayView() {
           </AnimatePresence>
         </div>
       )}
+
+      <QrPaymentSheet
+        open={qrOpen}
+        onOpenChange={setQrOpen}
+        order={qrOrder}
+        onConfirmPaid={(orderId) => void pay('transfer', orderId)}
+      />
     </div>
   )
 }

@@ -15,6 +15,7 @@ model Cafe {
   adminName   String   @default("Admin")
   pinHash     String?
   logo        String?
+  qrCode      String?  // Banking QR code as base64 data URL — uploaded by admin only
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
