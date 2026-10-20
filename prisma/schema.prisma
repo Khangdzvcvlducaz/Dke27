@@ -24,10 +24,15 @@ model Staff {
   name        String   @unique
   pinHash     String?
   view        String   @default("pos") // pos | kitchen | pay
+  onShift     Boolean  @default(false)
+  notifyEnabled Boolean @default(false)
   lastLogin   DateTime?
   loginCount  Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  subscriptions PushSubscription[]
+  notifLogs     NotificationLog[]
 }
 
 model MenuItem {
@@ -67,13 +72,15 @@ model Order {
   customer    String   @default("Khách lẻ")
   tableCode   String?
   type        String   @default("stay") // stay | take
-  status      String   @default("new") // new | making | done | paid | canceled
+  status      String   @default("new") // new | notified | making | done | paid | canceled
   total       Int      @default(0)
   discount    Int      @default(0)
   discountCode String?
   note        String?
   payMethod   String?  // cash | transfer
   paidAt      DateTime?
+  notifiedAt  DateTime? // separate from acceptance — set when push sent
+  assignedTo  String?   // manual or accept-by-staff name
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   by          String?
@@ -81,6 +88,7 @@ model Order {
   device      String?
 
   items       OrderItem[]
+  notifLogs   NotificationLog[]
 }
 
 model OrderItem {
@@ -115,4 +123,35 @@ model ShiftClose {
   cupsCount   Int      @default(0)
   canceledCount Int     @default(0)
   note        String?
+}
+
+// Web Push subscription per device per staff.
+// Endpoint URL is the FCM/APNs push endpoint; p256dh + auth are client-side ECDH keys.
+model PushSubscription {
+  id          String   @id @default(cuid())
+  staffId     String
+  endpoint    String   @unique
+  p256dhKey   String
+  authKey     String
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  staff       Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+}
+
+// Audit log for notification delivery attempts, failures, and acceptance events.
+// Never stores payload content (only an order ref) to avoid leaking customer data.
+model NotificationLog {
+  id          String   @id @default(cuid())
+  orderId     String?
+  staffId     String?
+  staffName   String?
+  event       String   // sent | delivered | failed | accepted | dismissed | timeout
+  status      Int?     // HTTP status from push service (201 = OK)
+  reason      String?
+  at          DateTime @default(now())
+
+  order       Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  staff       Staff?   @relation(fields: [staffId], references: [id], onDelete: SetNull)
 }

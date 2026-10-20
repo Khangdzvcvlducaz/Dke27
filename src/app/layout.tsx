@@ -3,6 +3,7 @@ import { Be_Vietnam_Pro, Oswald } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
+import { RegisterSW } from "@/components/register-sw";
 
 const vietnam = Be_Vietnam_Pro({
   variable: "--font-vietnam",
@@ -21,6 +22,21 @@ export const metadata: Metadata = {
   description: "Hệ thống quản lý đơn hàng, bếp, thu tiền và báo cáo cho quán cà phê Đông Không Em?",
   applicationName: "Đông Không Em?",
   authors: [{ name: "Đông Không Em? Coffee & Singing" }],
+  manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+  },
+  appleWebApp: {
+    capable: true,
+    title: "Đông Không Em?",
+    statusBarStyle: "default",
+  },
 };
 
 export const viewport: Viewport = {
@@ -48,6 +64,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
+          <RegisterSW />
           <Toaster richColors position="top-center" />
         </ThemeProvider>
       </body>

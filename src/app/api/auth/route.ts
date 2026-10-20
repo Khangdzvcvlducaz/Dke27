@@ -67,8 +67,9 @@ export async function POST(req: NextRequest) {
         await logSession(cafe.adminName, 'in')
         return NextResponse.json({ ok: true, role: 'admin', name: cafe.adminName, view: null })
       }
-      // check staff
-      const staff = await db.staff.findFirst({ where: { name: { equals: name, mode: 'insensitive' } } })
+      // check staff (SQLite is case-sensitive by default; we fetch and compare lowercase)
+      const allStaff = await db.staff.findMany()
+      const staff = allStaff.find((s) => s.name.toLowerCase() === name.toLowerCase())
       if (!staff) return NextResponse.json({ error: 'Không thấy nhân viên — nhờ Admin thêm' }, { status: 401 })
       if (!staff.pinHash) return NextResponse.json({ error: 'Tài khoản chưa có mã' }, { status: 401 })
       if (!bcrypt.compareSync(pin, staff.pinHash)) return NextResponse.json({ error: 'Sai mã PIN' }, { status: 401 })

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import { useCafeStore } from '@/store/cafe-store'
 import { fmtVND, fmtDateTime, VIEWIC, VIEWNAME } from '@/lib/format'
@@ -11,8 +11,9 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell, LineChart, Line, Legend } from 'recharts'
-import { Download, Plus, Trash2, Pencil, Banknote, Landmark, TrendingUp, Coffee, Clock } from 'lucide-react'
+import { Download, Plus, Trash2, Pencil, Banknote, Landmark, TrendingUp, Coffee, Clock, AlertTriangle } from 'lucide-react'
 import { broadcastStaffUpdate } from '@/lib/socket-client'
 import { StaffSheet } from '@/components/staff-sheet'
 
@@ -127,6 +128,12 @@ export function ReportView() {
         <StatCard icon={<Coffee className="size-4" />} label="Số ly / món" value={`${data.cups}`} />
         <StatCard icon={<Clock className="size-4" />} label="Chưa thu" value={`${data.activeCount} đơn`} sub={fmtVND(data.activeSum)} />
       </div>
+
+      {/* Unaccepted-orders alert (fallback if no staff accepted within 2 min) */}
+      <UnacceptedAlert day={day} />
+
+      {/* Manager view: on-shift staff + manual assign fallback */}
+      {isAdmin && <OnShiftStaffSection />}
 
       {/* Revenue 7 days chart */}
       <Card>
@@ -391,5 +398,219 @@ function MembersSection({ data }: { data: ReportData }) {
 
       <StaffSheet open={sheetOpen} onOpenChange={(b) => { setSheetOpen(b); if (!b) setEditing(null) }} name={editing || ''} />
     </Card>
+  )
+}
+
+/**
+ * Manager view: shows on-shift staff and their push-subscription status.
+ * Lets manager manually assign orders that didn't get accepted via push.
+ */
+function OnShiftStaffSection() {
+  const [staff, setStaff] = useState<{
+    id: string
+    name: string
+    view: string
+    onShift: boolean
+    notifyEnabled: boolean
+    hasSubscription: boolean
+    subscriptionCount: number
+  }[]>([])
+  const [unaccepted, setUnaccepted] = useState<{
+    id: string
+    code: string
+    createdAt: string
+    customer: string
+    items: { icon: string; name: string; qty: number }[]
+  }[]>([])
+
+  useEffect(() => {
+    void load()
+    const t = setInterval(load, 15000)
+    return () => clearInterval(t)
+  }, [])
+
+  async function load() {
+    try {
+      const r = await fetch('/api/staff/on-shift')
+      const d = await r.json()
+      setStaff(d.staff || [])
+      const r2 = await fetch('/api/orders?status=notified')
+      const d2 = await r2.json()
+      setUnaccepted(d2.orders || [])
+    } catch {}
+  }
+
+  async function toggleShift(s: { id: string; onShift: boolean; name: string }) {
+    try {
+      await fetch('/api/staff/shift', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffId: s.id, onShift: !s.onShift }),
+      })
+      await load()
+      toast.success(`${s.name}: ${!s.onShift ? 'Trên ca' : 'Nghỉ ca'}`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+
+  async function assign(orderId: string, staffName: string) {
+    try {
+      const r = await fetch('/api/orders/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, staffName }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error)
+      toast.success(`Đã giao ${d.order.code} cho ${staffName}`)
+      await load()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            👥 Nhân viên trên ca &amp; trạng thái thông báo
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {staff.map((s) => (
+              <div
+                key={s.id}
+                className={`rounded-xl border p-3 flex items-center gap-2 ${
+                  s.onShift && s.hasSubscription
+                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20'
+                    : s.onShift
+                    ? 'border-amber-400 bg-amber-50/50 dark:bg-amber-950/20'
+                    : 'border-border bg-card'
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold flex items-center gap-1.5 flex-wrap">
+                    {s.name}
+                    {s.view === 'kitchen' && <Badge variant="outline" className="text-[10px]">☕ Quầy pha</Badge>}
+                    {s.view === 'pos' && <Badge variant="outline" className="text-[10px]">🧾 POS</Badge>}
+                    {s.view === 'pay' && <Badge variant="outline" className="text-[10px]">💵 Thu tiền</Badge>}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {s.onShift ? 'Đang trên ca' : 'Đang nghỉ'}
+                    {s.onShift && s.hasSubscription
+                      ? ' · nhận thông báo ✓'
+                      : s.onShift
+                      ? ' · chưa đăng ký thông báo'
+                      : ''}
+                  </div>
+                </div>
+                <Switch
+                  checked={s.onShift}
+                  onCheckedChange={() => toggleShift(s)}
+                  aria-label={`Bật/tắt ca của ${s.name}`}
+                />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {unaccepted.length > 0 && (
+        <Card className="border-amber-400">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2 text-amber-700 dark:text-amber-300">
+              ⚠️ Đơn chưa được nhận ({unaccepted.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-3">
+              Các đơn này đã gửi thông báo nhưng chưa có nhân viên nhận. Bấm <b>"Giao cho..."</b> để chỉ định thủ công.
+            </p>
+            <div className="space-y-2">
+              {unaccepted.map((o) => (
+                <div key={o.id} className="rounded-xl border border-border bg-card p-2.5 flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-bold flex items-center gap-2">
+                      <b className="bg-primary text-primary-foreground px-1.5 py-0.5 rounded text-xs" style={{ fontFamily: 'var(--font-oswald)' }}>{o.code}</b>
+                      <span className="text-muted-foreground font-normal text-xs">{o.customer}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {o.items.map((it, i) => <span key={i}>{i ? ' · ' : ''}{it.qty}× {it.icon} {it.name}</span>)}
+                    </div>
+                  </div>
+                  <select
+                    className="px-2 py-1 text-xs rounded-md border border-input bg-card"
+                    defaultValue=""
+                    onChange={async (e) => {
+                      if (e.target.value) await assign(o.id, e.target.value)
+                      e.target.value = ''
+                    }}
+                  >
+                    <option value="" disabled>Giao cho...</option>
+                    {staff.filter((s) => s.view === 'kitchen').map((s) => (
+                      <option key={s.id} value={s.name}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </>
+  )
+}
+
+/**
+ * Visible alert when an order has been waiting (status=new or notified) longer
+ * than a configurable threshold (default 2 minutes). Shows on the cashier /
+ * manager dashboard so the order is never lost if notifications fail.
+ */
+function UnacceptedAlert({ day }: { day: string }) {
+  const [overdue, setOverdue] = useState<{ id: string; code: string; mins: number }[]>([])
+
+  const load = useCallback(async () => {
+    const THRESHOLD_MIN = 2 // configurable threshold
+    try {
+      const [r1, r2] = await Promise.all([
+        fetch('/api/orders?status=new').then((r) => r.json()),
+        fetch('/api/orders?status=notified').then((r) => r.json()),
+      ])
+      const all = [...(r1.orders || []), ...(r2.orders || [])]
+      const now = Date.now()
+      const overdue = all
+        .filter((o: any) => (now - new Date(o.createdAt).getTime()) / 60000 >= THRESHOLD_MIN)
+        .map((o: any) => ({ id: o.id, code: o.code, mins: Math.floor((now - new Date(o.createdAt).getTime()) / 60000) }))
+        .sort((a: any, b: any) => b.mins - a.mins)
+      setOverdue(overdue)
+    } catch {}
+  }, [day])
+
+  useEffect(() => {
+    // Initial fetch on mount — fetch+setState is the standard pattern.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load()
+    const t = setInterval(() => { void load() }, 10000)
+    return () => clearInterval(t)
+  }, [load])
+
+  if (overdue.length === 0) return null
+
+  return (
+    <div className="bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 dark:border-amber-700 rounded-2xl p-3 flex items-start gap-2">
+      <AlertTriangle className="size-5 text-amber-600 shrink-0 mt-0.5" />
+      <div className="text-sm">
+        <b className="text-amber-900 dark:text-amber-100">⚠ {overdue.length} đơn chưa được nhận quá 2 phút</b>
+        <ul className="text-xs text-amber-800 dark:text-amber-200 mt-1 space-y-0.5">
+          {overdue.slice(0, 5).map((o) => (
+            <li key={o.id}>• {o.code} — đang chờ {o.mins} phút</li>
+          ))}
+          {overdue.length > 5 && <li>... và {overdue.length - 5} đơn khác</li>}
+        </ul>
+      </div>
+    </div>
   )
 }

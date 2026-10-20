@@ -70,6 +70,7 @@ export const TABDEF: Record<string, [string, string]> = {
 
 export const STATUSNAME: Record<string, string> = {
   new: 'chờ pha',
+  notified: 'đã gửi thông báo',
   making: 'đang pha',
   done: 'xong món',
   paid: 'đã thu tiền',

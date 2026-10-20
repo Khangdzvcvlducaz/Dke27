@@ -64,7 +64,7 @@ export function KitchenView() {
         }
         return m
       })
-      if (o.status === 'new') {
+      if (o.status === 'new' || o.status === 'notified') {
         setWait((w) => (w.some((x) => x.id === o.id) ? w : [o, ...w]))
       }
     }
@@ -85,12 +85,19 @@ export function KitchenView() {
   async function load() {
     setLoading(true)
     try {
+      // Wait column = orders awaiting acceptance (new OR notified).
       const r = await fetch('/api/orders?status=new')
       const d = await r.json()
-      setWait(d.orders || [])
-      const r2 = await fetch('/api/orders?status=making')
+      const waitList: OrderDTO[] = d.orders || []
+      const r2 = await fetch('/api/orders?status=notified')
       const d2 = await r2.json()
-      setMaking(d2.orders || [])
+      const notifiedList: OrderDTO[] = d2.orders || []
+      // Notified orders appear first (waiting longest), then new.
+      const merged = [...notifiedList, ...waitList.filter((n) => !notifiedList.some((no) => no.id === n.id))]
+      setWait(merged)
+      const r3 = await fetch('/api/orders?status=making')
+      const d3 = await r3.json()
+      setMaking(d3.orders || [])
     } finally {
       setLoading(false)
     }
@@ -98,26 +105,43 @@ export function KitchenView() {
 
   async function doAction(act: 'start' | 'finish' | 'cancel', id: string) {
     try {
-      const status = act === 'start' ? 'making' : act === 'finish' ? 'done' : 'canceled'
-      const r = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'update', id, status }),
-      })
-      const d = await r.json()
-      if (!r.ok) throw new Error(d.error)
-      broadcastOrderUpdate('cafe', d.order)
       if (act === 'start') {
+        // "Start making" = accept for preparation (uses accept endpoint,
+        // which is also reachable from the SW notification action).
+        const user = useCafeStore.getState().user
+        const r = await fetch('/api/orders/accept', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId: id, staffId: user?.staffId, staffName: user?.name }),
+        })
+        const d = await r.json()
+        if (!r.ok) throw new Error(d.error)
+        broadcastOrderUpdate('cafe', d.order)
         setWait((w) => w.filter((x) => x.id !== id))
-        setMaking((m) => [d.order, ...m])
-        toast.success(`Bắt đầu pha ${d.order.code}`)
-      } else if (act === 'finish') {
-        setMaking((m) => m.filter((x) => x.id !== id))
-        toast.success(`✓ ${d.order.code} xong — chờ thu tiền`)
+        if (!d.alreadyAccepted) {
+          setMaking((m) => [d.order, ...m])
+          toast.success(`Bắt đầu pha ${d.order.code}`)
+        } else {
+          toast.info(`${d.order.code} đã có người nhận`)
+        }
       } else {
-        setWait((w) => w.filter((x) => x.id !== id))
-        setMaking((m) => m.filter((x) => x.id !== id))
-        toast(`Đã hủy ${d.order.code}`)
+        const status = act === 'finish' ? 'done' : 'canceled'
+        const r = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'update', id, status }),
+        })
+        const d = await r.json()
+        if (!r.ok) throw new Error(d.error)
+        broadcastOrderUpdate('cafe', d.order)
+        if (act === 'finish') {
+          setMaking((m) => m.filter((x) => x.id !== id))
+          toast.success(`✓ ${d.order.code} xong — chờ thu tiền`)
+        } else {
+          setWait((w) => w.filter((x) => x.id !== id))
+          setMaking((m) => m.filter((x) => x.id !== id))
+          toast(`Đã hủy ${d.order.code}`)
+        }
       }
     } catch (e) {
       toast.error((e as Error).message)
@@ -181,8 +205,10 @@ function EmptyState({ msg }: { msg: string }) {
 }
 
 function KitchenCard({ order, onAction }: { order: OrderDTO; onAction: (act: 'start' | 'finish' | 'cancel', id: string) => void }) {
-  const late = order.status === 'new' && minsAgo(order.createdAt) > 8
+  // Late = waiting over 8 min (covers both 'new' and 'notified' states).
+  const late = (order.status === 'new' || order.status === 'notified') && minsAgo(order.createdAt) > 8
   const mins = minsAgo(order.createdAt)
+  const isNotified = order.status === 'notified'
 
   return (
     <motion.div
@@ -190,7 +216,7 @@ function KitchenCard({ order, onAction }: { order: OrderDTO; onAction: (act: 'st
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
-      className={`ticket-cut bg-card border border-border rounded-2xl p-3 shadow-sm relative ${late ? 'border-primary border-2' : ''} ${order.status === 'making' ? 'border-primary' : ''}`}
+      className={`ticket-cut bg-card border border-border rounded-2xl p-3 shadow-sm relative ${late ? 'border-primary border-2' : ''} ${order.status === 'making' ? 'border-primary' : ''} ${isNotified ? 'bg-amber-50/50 dark:bg-amber-950/20' : ''}`}
     >
       <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
         <b className="bg-primary text-primary-foreground px-2 py-0.5 rounded-md text-sm" style={{ fontFamily: 'var(--font-oswald)' }}>{order.code}</b>
@@ -198,6 +224,7 @@ function KitchenCard({ order, onAction }: { order: OrderDTO; onAction: (act: 'st
           {order.type === 'take' ? '🥡 Mang đi' : '🏠 Tại chỗ'}
         </span>
         {order.tableCode && <Badge variant="outline" className="text-xs">{order.tableCode}</Badge>}
+        {isNotified && <Badge variant="secondary" className="text-xs">🔔 Đã gửi thông báo</Badge>}
         <span className="ml-auto font-mono flex items-center gap-1">
           <Clock className="size-3" /> {fmtTime(order.createdAt)}
           {mins > 0 && <span className={mins > 8 ? 'text-primary font-bold' : ''}>({mins}p)</span>}
@@ -223,9 +250,9 @@ function KitchenCard({ order, onAction }: { order: OrderDTO; onAction: (act: 'st
       </div>
 
       <div className="border-t border-dashed border-border pt-2 mt-1 flex gap-2">
-        {order.status === 'new' ? (
+        {order.status === 'new' || order.status === 'notified' ? (
           <Button size="sm" className="btn-push flex-1" onClick={() => onAction('start', order.id)}>
-            <Play className="size-3.5 mr-1" /> Bắt đầu pha
+            <Play className="size-3.5 mr-1" /> {isNotified ? 'Nhận pha' : 'Bắt đầu pha'}
           </Button>
         ) : (
           <Button size="sm" variant="default" className="bg-emerald-600 hover:bg-emerald-700 flex-1" onClick={() => onAction('finish', order.id)}>

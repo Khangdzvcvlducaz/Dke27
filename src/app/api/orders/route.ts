@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { sendNewOrderPush } from '@/lib/push'
 
 export const runtime = 'nodejs'
 
@@ -93,6 +94,27 @@ export async function POST(req: NextRequest) {
       // update table status
       if (tableCode) {
         await db.table.updateMany({ where: { code: tableCode }, data: { status: 'occupied' } })
+      }
+
+      // Mark the order as "notified" (delivery sent) — distinct from "accepted for preparation".
+      // Send Web Push to eligible on-shift drink-prep staff. Best-effort: failures
+      // are logged but never block the order creation. The order is visible and
+      // actionable in the dashboard regardless of push delivery.
+      try {
+        await sendNewOrderPush({
+          id: order.id,
+          code: order.code,
+          customer: order.customer,
+          tableCode: order.tableCode,
+          type: order.type,
+          items: order.items.map((i: any) => ({ icon: i.icon, name: i.name, qty: i.qty, notes: i.notes })),
+        })
+        await db.order.update({ where: { id: order.id }, data: { notifiedAt: new Date(), status: 'notified' } })
+        order.status = 'notified'
+        order.notifiedAt = new Date()
+      } catch (e) {
+        // Push failed — order remains in 'new' status, still visible in dashboard.
+        console.error('[orders] push send failed:', (e as Error).message)
       }
 
       return NextResponse.json({ ok: true, order })

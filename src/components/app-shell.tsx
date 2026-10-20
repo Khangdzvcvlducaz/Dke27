@@ -8,7 +8,7 @@ import { BrandLogo } from '@/components/brand-logo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useTheme } from '@/components/theme-provider'
-import { Cloud, CloudOff, Lock, Moon, Sun, Sparkles } from 'lucide-react'
+import { Cloud, CloudOff, Lock, Moon, Sun, Sparkles, User } from 'lucide-react'
 import { getSocket } from '@/lib/socket-client'
 import { PosView } from '@/components/views/pos-view'
 import { KitchenView } from '@/components/views/kitchen-view'
@@ -18,6 +18,7 @@ import { MenuManagerView } from '@/components/views/menu-manager-view'
 import { AiChatSheet } from '@/components/ai-chat-sheet'
 import { CartSheet } from '@/components/cart-sheet'
 import { CartBar } from '@/components/cart-bar'
+import { ProfileSheet } from '@/components/profile-sheet'
 import type { LucideIcon } from 'lucide-react'
 
 const ORDER_BADGES: Record<string, number> = { kitchen: 0, pay: 0 }
@@ -28,15 +29,42 @@ export function AppShell() {
   const [kitchenCount, setKitchenCount] = useState(0)
   const [payCount, setPayCount] = useState(0)
   const [chatOpen, setChatOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+
+  // Handle deep links from notification clicks: ?open=kitchen&order=ID
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    const openView = url.searchParams.get('open')
+    if (openView && ['pos', 'kitchen', 'pay', 'report', 'menu'].includes(openView)) {
+      const allowedViews = user?.role === 'admin'
+        ? ['pos', 'kitchen', 'pay', 'report', 'menu']
+        : [user?.view || 'pos']
+      if (allowedViews.includes(openView)) {
+        setCurrentView(openView)
+      }
+    }
+    // Clean query so refresh doesn't re-trigger.
+    if (url.searchParams.has('open')) {
+      url.searchParams.delete('open')
+      url.searchParams.delete('order')
+      window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''))
+    }
+  }, [user, setCurrentView])
 
   const refreshBadges = useCallback(async () => {
     try {
+      // Kitchen badge counts orders awaiting acceptance (new + notified).
       const r = await fetch('/api/orders?status=new')
       const d = await r.json()
-      setKitchenCount(d.orders?.length || 0)
-      const r2 = await fetch('/api/orders?status=done')
+      const newCount: number = d.orders?.length || 0
+      const r2 = await fetch('/api/orders?status=notified')
       const d2 = await r2.json()
-      setPayCount(d2.orders?.length || 0)
+      const notifiedCount: number = d2.orders?.length || 0
+      setKitchenCount(newCount + notifiedCount)
+      const r3 = await fetch('/api/orders?status=done')
+      const d3 = await r3.json()
+      setPayCount(d3.orders?.length || 0)
     } catch {}
   }, [])
 
@@ -117,6 +145,15 @@ export function AppShell() {
             <span className="bg-accent border border-primary text-primary px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap">
               {isAdmin ? '👑 ' : '👤 '}{user.name}
             </span>
+            {/* Profile + notifications settings — accessible to all staff */}
+            <button
+              className="p-2 rounded-lg border border-border bg-card text-foreground hover:bg-accent"
+              onClick={() => setProfileOpen(true)}
+              aria-label="Hồ sơ & thông báo"
+              title="Hồ sơ & thông báo"
+            >
+              <User className="size-4" />
+            </button>
             <button
               className="p-2 rounded-lg border border-border bg-card text-foreground hover:bg-accent"
               onClick={() => {
@@ -195,6 +232,7 @@ export function AppShell() {
       {/* Sheets */}
       <CartSheet />
       <AiChatSheet open={chatOpen} onOpenChange={setChatOpen} />
+      <ProfileSheet open={profileOpen} onOpenChange={setProfileOpen} />
     </div>
   )
 }

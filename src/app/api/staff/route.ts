@@ -34,7 +34,8 @@ export async function POST(req: NextRequest) {
       if (cafe?.adminName && name.toLowerCase() === cafe.adminName.toLowerCase()) {
         return NextResponse.json({ error: 'Tên trùng với Admin' }, { status: 400 })
       }
-      const exists = await db.staff.findFirst({ where: { name: { equals: name, mode: 'insensitive' } } })
+      const allStaff = await db.staff.findMany()
+      const exists = allStaff.find((s) => s.name.toLowerCase() === name.toLowerCase())
       if (exists) return NextResponse.json({ error: 'Đã có nhân viên tên này' }, { status: 400 })
       let pinHash: string | null = null
       if (pin) {
