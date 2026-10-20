@@ -252,3 +252,46 @@ Stage Summary:
 - Test button "Test âm thanh + rung" cho phép user verify device support độc lập với push pipeline.
 - Profile sheet có clear platform-specific guidance (iOS/Android/Desktop) + "Giữ tab app mở" reminder.
 - Tất cả vẫn works realtime (socket fix từ task trước) + 1-order-at-a-time rule (task trước) + push subscription (task 2) + PWA manifest/sw (task 2).
+
+---
+Task ID: 6
+Agent: main (orchestrator)
+Task: Fix lỗi kitchen view không cập nhật đơn real-time (phải tắt/mở app mới thấy) + sound loop 6s.
+
+Work Log:
+- Phân tích root cause: trước đây chỉ CLIENT-SIDE (cart-sheet.tsx) broadcast socket event sau khi fetch /api/orders. Nếu cashier's tab suspend/sleep hoặc socket chưa kết nối kịp → kitchen view không nhận đơn cho đến khi reload.
+- Fix 1: SERVER-SIDE BROADCAST trong /api/orders POST (action=create):
+  - Import broadcastOrderNew từ @/lib/socket-server-broadcast
+  - Sau khi tạo order + sendNewOrderPush, gọi broadcastOrderNew('cafe', order) với full items
+  - Comment rõ: server-side = authoritative source of truth, client-side = backup
+- Fix 2: Update socket-server-broadcast.ts:
+  - Thêm buffer _pending[] cho messages emit trước khi socket connected — flush khi 'connect' event fire
+  - Check s.connected trước emit; nếu chưa connected, push vào buffer
+  - Log connect_error (không log endpoint/keys)
+- Fix 3: POLLING FALLBACK trong kitchen-view.tsx:
+  - useEffect mới: setInterval(poll, 10000) — mỗi 10s fetch 3 endpoints (new, notified, making) song song
+  - setWait/setMaking chỉ update nếu set thực sự thay đổi (compare id + status, tránh unnecessary re-render)
+  - document.addEventListener('visibilitychange') → poll khi tab visible lại (user switch back từ app khác)
+  - Cleanup interval + listener khi unmount
+- Fix 4: Re-join room on socket reconnect — socket.on('connect') → socket.emit('join', 'cafe') + void load(). Đảm bảo nếu socket disconnect (network drop, tab sleep, mini-service restart) rồi reconnect, kitchen vẫn nhận events.
+- Fix 5: DEDUP toast + sound dùng useRef (Set):
+  - seenOrderIdsRef = useRef<Set<string>>(new Set())
+  - onNew: nếu seenOrderIdsRef.current.has(o.id) → return sớm (skip toast/sound)
+  - Add o.id vào set, setTimeout 30s xóa (tránh memory bloat)
+  - Lý do: cả server-side broadcast AND client-side broadcast đều fire cho cùng 1 order → onNew được gọi 2 lần. React setWait async nên không thể dedup dựa vào state. Set ref = synchronous.
+- Fix 6: Sound loop 3s → 6s theo yêu cầu user. Comment rõ: 6s cho clip ~2.5s + 3.5s pause = alert rhythm rõ ràng.
+- Lint PASS.
+- Browser test (agent-browser 2 session qua Caddy port 81):
+  - kitchen session: login Bếp A, console "[socket] connected" ✓
+  - cashier session: login An, POS, add 2 món (Cà phê đen + Bạc xỉu), mở cart sheet, click "Gửi đơn"
+  - 2 giây sau: kitchen session snapshot cho thấy đơn #13 đã trong "CHỜ PHA" realtime, vibration indicator "Thiết bị đang rung liên tục + phát âm thanh..." hiện, "Nhận pha" button enabled. KHÔNG cần reload ✓
+  - Trước đây toast "🔔 Đơn mới #13 — An" hiện 2 lần (server + client broadcast) → sau fix dedup với ref, chỉ hiện 1 lần ✓
+  - Test thứ 2: tạo đơn #14 → kitchen nhận realtime, toast chỉ 1 lần ✓
+  - POLLING FALLBACK TEST: tạo đơn #15 qua API trực tiếp (curl, không qua cashier UI). Kitchen view (vẫn open) picked up order #15 sau ~10 giây nhờ polling interval. ✓
+- Services stable: dev server port 3000 + realtime mini-service port 3030 + Caddy gateway port 81.
+
+Stage Summary:
+- Bug 1 (kitchen không real-time) FIXED bằng 3 lớp bảo vệ: (a) server-side socket broadcast trong /api/orders POST — không phụ thuộc client; (b) re-join room on reconnect; (c) polling fallback mỗi 10s + on visibilitychange.
+- Bug 2 (sound loop 6s) FIXED: setTimeout(loop, 6000) thay vì 3000.
+- Dedup toast/sound FIXED: useRef<Set> synchronous, không dựa vào async React state.
+- Tất cả vẫn works: 1-order-at-a-time rule, push subscription, PWA, vibration continuous, soundeffect "Ho Ho Ho", iOS sound loop fallback, Wake Lock, etc.

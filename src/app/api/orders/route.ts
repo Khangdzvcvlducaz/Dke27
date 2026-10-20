@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { sendNewOrderPush } from '@/lib/push'
+import { broadcastOrderNew, broadcastOrderUpdate } from '@/lib/socket-server-broadcast'
 
 export const runtime = 'nodejs'
 
@@ -115,6 +116,29 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         // Push failed — order remains in 'new' status, still visible in dashboard.
         console.error('[orders] push send failed:', (e as Error).message)
+      }
+
+      // SERVER-SIDE BROADCAST (not client-side): ensures the kitchen view
+      // receives the new-order event regardless of whether the cashier's
+      // browser tab is active, suspended, or the client-side broadcast fails.
+      // This is the authoritative source of truth — the client-side broadcast
+      // in cart-sheet.tsx is a backup for the optimistic-UI case.
+      try {
+        broadcastOrderNew('cafe', {
+          ...order,
+          // Make sure items are included so kitchen view can render immediately.
+          items: order.items.map((i: any) => ({
+            id: i.id,
+            icon: i.icon,
+            name: i.name,
+            price: i.price,
+            qty: i.qty,
+            notes: i.notes,
+          })),
+        })
+      } catch (e) {
+        // Socket broadcast failed — clients will catch up on next poll.
+        console.warn('[orders] server-side broadcast failed:', (e as Error).message)
       }
 
       return NextResponse.json({ ok: true, order })

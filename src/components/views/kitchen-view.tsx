@@ -41,6 +41,12 @@ export function KitchenView() {
   const [loading, setLoading] = useState(true)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
+  // Synchronous set of recently-seen order IDs — used to dedup the
+  // toast/sound when both server-side AND client-side broadcast fire for
+  // the same order (React state updates are async, so setWait alone
+  // can't dedup rapid successive calls).
+  const seenOrderIdsRef = useRef<Set<string>>(new Set())
+
   // Detect iOS — Safari on iPhone/iPad does NOT support the Vibration API
   // at all (Apple policy). We show a clear message to the user explaining
   // that only the OS-level notification settings can vibrate iOS.
@@ -57,18 +63,23 @@ export function KitchenView() {
     void load()
     const socket = getSocket('cafe')
     const onNew = (o: OrderDTO) => {
+      // SYNCHRONOUS dedup using ref: prevents double-toast when both
+      // server-side AND client-side broadcast fire for the same order in
+      // rapid succession (React's async setWait can't catch this).
+      if (seenOrderIdsRef.current.has(o.id)) {
+        // Already announced — just skip the toast/sound.
+        return
+      }
+      seenOrderIdsRef.current.add(o.id)
+      // Clean up the set after 30 seconds to avoid memory bloat.
+      setTimeout(() => { seenOrderIdsRef.current.delete(o.id) }, 30000)
+
       setWait((w) => {
         if (w.some((x) => x.id === o.id)) return w
         return [o, ...w]
       })
       if (o.by !== user?.name) {
         toast.success(`🔔 Đơn mới ${o.code} — ${o.by}`)
-        // Note: audio playback is now handled GLOBALLY by register-sw.tsx
-        // (listens for 'play-notif-sound' messages from the SW AND plays
-        // when socket 'order:new' fires — but deduplicated by orderId to
-        // avoid double-playing when both paths fire for the same order).
-        // We only call playNotifSound here as a fallback in case the SW
-        // path is unavailable (e.g., dev mode without SW registered).
         playNotifSound(o.id)
         tryBeep()
       }
@@ -100,10 +111,68 @@ export function KitchenView() {
     socket.on('order:new', onNew)
     socket.on('order:update', onUpdate)
     socket.on('order:delete', onDelete)
+    // Re-join room on reconnect — if the socket disconnects (network drop,
+    // tab sleep, mini-service restart) and auto-reconnects, it must re-join
+    // the 'cafe' room or it won't receive broadcasts.
+    socket.on('connect', () => {
+      socket.emit('join', 'cafe')
+      // Also refetch orders on reconnect — we might have missed events
+      // during the disconnect window.
+      void load()
+    })
     return () => {
       socket.off('order:new', onNew)
       socket.off('order:update', onUpdate)
       socket.off('order:delete', onDelete)
+      socket.off('connect')
+    }
+  }, [user])
+
+  // POLLING FALLBACK: refetch orders every 10 seconds to catch any events
+  // the socket missed (e.g., if the kitchen device's socket was disconnected
+  // when the cashier created the order). This guarantees the kitchen view
+  // is never stale — worst case it lags 10s behind real-time.
+  // The kitchen view also auto-refetches when the tab becomes visible again
+  // (e.g., user switches back to the kitchen tab from another app).
+  useEffect(() => {
+    if (!user) return
+    let active = true
+    const poll = async () => {
+      if (!active) return
+      try {
+        const [r1, r2, r3] = await Promise.all([
+          fetch('/api/orders?status=new'),
+          fetch('/api/orders?status=notified'),
+          fetch('/api/orders?status=making'),
+        ])
+        const [d1, d2, d3] = await Promise.all([r1.json(), r2.json(), r3.json()])
+        if (!active) return
+        const newWait: OrderDTO[] = [...(d2.orders || []), ...((d1.orders || []).filter((n: OrderDTO) => !(d2.orders || []).some((no: OrderDTO) => no.id === n.id)))]
+        const newMaking: OrderDTO[] = d3.orders || []
+        setWait((prev) => {
+          // Only update if the set actually changed (avoid unnecessary re-renders).
+          const sameSet = prev.length === newWait.length && prev.every((o, i) => o.id === newWait[i]?.id && o.status === newWait[i]?.status)
+          return sameSet ? prev : newWait
+        })
+        setMaking((prev) => {
+          const sameSet = prev.length === newMaking.length && prev.every((o, i) => o.id === newMaking[i]?.id && o.status === newMaking[i]?.status)
+          return sameSet ? prev : newMaking
+        })
+      } catch (e) {
+        // Network error — retry on next tick.
+      }
+    }
+    // Poll every 10 seconds.
+    const interval = setInterval(poll, 10000)
+    // Also poll when the tab becomes visible again (user switched back).
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void poll()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      active = false
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [user])
 
@@ -205,6 +274,10 @@ export function KitchenView() {
   // loop the "Ho Ho Ho" sound effect continuously as a fallback alert.
   // Stops when: staff accepts an order (myInProgress set) OR no more
   // wait orders OR the user navigates away.
+  //
+  // Loop interval: 6 seconds (per user request) — gives the ~2.5s clip
+  // time to finish, then a ~3.5s pause before replaying, so it's clearly
+  // an alert rhythm rather than a single long sound.
   useEffect(() => {
     if (!user?.staffId) return
     const needsAttention = wait.length > 0 && !myInProgress
@@ -212,20 +285,20 @@ export function KitchenView() {
     // Only loop sound if vibration is unavailable (iOS or desktop).
     const hasVibration = !isIOS && 'vibrate' in navigator
     if (hasVibration) return // vibration handles the alert — sound would be annoying
-    // For iOS / non-vibration devices, loop the sound every ~3 seconds.
+    // For iOS / non-vibration devices, loop the sound every 6 seconds.
     const audio = audioRef.current
     if (!audio) return
     let active = true
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
     const loop = () => {
       if (!active) return
       try {
         audio.currentTime = 0
         void audio.play().catch(() => {})
       } catch {}
-      // The clip is ~2.5 seconds. Replay every 3s for continuous alert.
-      timeoutId = setTimeout(loop, 3000)
+      // The clip is ~2.5 seconds. Replay every 6s per user request.
+      timeoutId = setTimeout(loop, 6000)
     }
-    let timeoutId: ReturnType<typeof setTimeout> | undefined
     loop()
     return () => {
       active = false
