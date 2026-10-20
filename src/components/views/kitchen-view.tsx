@@ -98,26 +98,77 @@ export function KitchenView() {
   // Continuous vibration while there is at least one order waiting to be
   // accepted AND the current staff is not already preparing another order.
   // Honors Vibration API (Android Chrome). iOS Safari doesn't support it.
+  //
+  // Implementation notes:
+  //   - We use a SIMPLE single-pulse pattern [600] instead of a complex one
+  //     like [300,150,300,150,300]. Many Android versions only honor the
+  //     first segment of complex patterns, producing a single short buzz
+  //     instead of the expected rhythm. A single 600ms pulse is reliable.
+  //   - We use recursive setTimeout (not setInterval) to avoid throttling
+  //     gaps. setInterval can be throttled by the browser when the tab is
+  //     in background; setTimeout scheduled from the previous tick keeps
+  //     firing reliably.
+  //   - Each iteration fires immediately after the previous pattern ends
+  //     (with a tiny 50ms buffer to prevent overlap-cutting).
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('vibrate' in navigator)) return
     if (!user?.staffId) return // admin viewing — no vibration
     const needsAttention = wait.length > 0 && !myInProgress
     if (!needsAttention) {
-      // Cancel any ongoing vibration.
       try { navigator.vibrate(0) } catch {}
       return
     }
-    // Pattern is ~1.2s long; repeat every 1.5s for a continuous rhythm
-    // until the staff accepts (myInProgress becomes set) or wait list clears.
-    const pattern = [300, 150, 300, 150, 300]
-    // Fire once immediately, then on an interval.
-    try { navigator.vibrate(pattern) } catch {}
-    const interval = setInterval(() => {
+    const pattern = [600] // single 600ms pulse — reliable across Android versions
+    const patternDuration = 600
+    let active = true
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    const loop = () => {
+      if (!active) return
       try { navigator.vibrate(pattern) } catch {}
-    }, 1500)
+      // Re-fire right when pattern ends, with tiny buffer to avoid cutting.
+      timeoutId = setTimeout(loop, patternDuration + 50)
+    }
+    loop()
     return () => {
-      clearInterval(interval)
+      active = false
+      if (timeoutId) clearTimeout(timeoutId)
       try { navigator.vibrate(0) } catch {}
+    }
+  }, [wait.length, myInProgress, user?.staffId])
+
+  // Wake Lock API — keep the screen on while there are pending orders in the
+  // kitchen view. Without this, the device screen will turn off after the
+  // system timeout, pausing setInterval/setTimeout and breaking vibration.
+  // Released when there are no more wait orders or the staff accepts one.
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return
+    if (!('wakeLock' in navigator)) return
+    if (!user?.staffId) return
+    const needsAttention = wait.length > 0 && !myInProgress
+    if (!needsAttention) return
+    let wakeLock: any = null
+    const request = async () => {
+      try {
+        wakeLock = await (navigator as any).wakeLock.request('screen')
+      } catch (e) {
+        // Wake Lock request can fail if the tab is in background or the
+        // user denied. Not critical — vibration still works in foreground.
+      }
+    }
+    void request()
+    // Re-acquire on visibility change (Wake Lock is released when tab is hidden).
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && !wakeLock) {
+        void request()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      if (wakeLock?.release) {
+        try { wakeLock.release() } catch {}
+      }
+      wakeLock = null
     }
   }, [wait.length, myInProgress, user?.staffId])
 
@@ -125,15 +176,18 @@ export function KitchenView() {
    * Play the uploaded "Ho Ho Ho Merry Christmas" sound for new-order notifications.
    * Foreground playback works without any extra permission since the staff has
    * already clicked to log in (satisfying browser autoplay policy).
+   *
+   * Also triggered when the SW receives a push event and postMessages to the
+   * page (see public/sw.js + register-sw.tsx) — this is the only way to play
+   * custom audio on push, since Chrome ignores the `sound` field in
+   * showNotification() and SWs cannot play audio directly.
    */
   function playNotifSound() {
     try {
       const a = audioRef.current
       if (!a) return
-      // Rewind so repeated events replay from the start.
       a.currentTime = 0
       void a.play().catch(() => {
-        // Autoplay blocked or audio not ready — fall back to in-app beep.
         tryBeep()
       })
     } catch {

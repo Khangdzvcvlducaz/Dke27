@@ -90,10 +90,42 @@ self.addEventListener('push', (event) => {
 
   event.waitUntil(
     (async () => {
+      // Step 1: Post message to ALL open client tabs/windows so the page
+      // can play our custom sound effect ("Ho Ho Ho Merry Christmas").
+      //
+      // Why? Because Chrome/Edge do NOT honor the `sound` field in
+      // showNotification — they always play the OS default. The SW itself
+      // cannot play audio (no AudioContext in SW). The only way to play
+      // custom audio on push is to delegate to an open page tab, which CAN
+      // play audio via an <audio> element after user interaction.
+      //
+      // This works when:
+      //   - The kitchen staff has the app tab open (foreground or background)
+      //   - The page has been interacted with (login button) — satisfies
+      //     browser autoplay policy
+      //
+      // It does NOT work when:
+      //   - The tab is fully closed — only system default sound plays
+      //   - The user has muted the tab explicitly
+      try {
+        const allClients = await self.clients.matchAll({
+          type: 'window',
+          includeUncontrolled: true,
+        });
+        for (const client of allClients) {
+          client.postMessage({
+            type: 'play-notif-sound',
+            payload,
+          });
+        }
+      } catch (e) {
+        // ignore — notification will still show
+      }
+
+      // Step 2: Show the notification.
       try {
         await self.registration.showNotification(title, options);
       } catch (e) {
-        // Fall back to a basic notification without actions.
         try {
           await self.registration.showNotification(title, { body, tag, data });
         } catch (e2) {
