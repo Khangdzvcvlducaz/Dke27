@@ -1,5 +1,10 @@
 #!/bin/sh
-bun run db:push 2>&1 || true
+echo "=== db:push ==="
+bun run db:push || true
+
+echo "=== realtime ==="
 cd mini-services/realtime-sync && bun run index.ts &
+
 sleep 2
-exec bun run dev
+echo "=== next dev ==="
+exec bun run dev:prod

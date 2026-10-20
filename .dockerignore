@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+db
+.env
+dev.log
+server.log
+upload
+download
+tool-results
+tests
+*.mp3

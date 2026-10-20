@@ -12,7 +12,8 @@
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "realtime": "cd mini-services/realtime-sync && bun run dev",
-    "dev:all": "concurrently \"bun run dev\" \"cd mini-services/realtime-sync && bun run dev\""
+    "dev:all": "concurrently \"bun run dev\" \"cd mini-services/realtime-sync && bun run dev\"",
+    "dev:prod": "next dev -p 3000"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
