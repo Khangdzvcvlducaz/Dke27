@@ -524,3 +524,36 @@ Stage Summary:
 - Fix: dùng `ended` event listener thay vì fixed timeout — chỉ remove audio element khi playback kết thúc tự nhiên.
 - Áp dụng cho cả 3 chỗ: app-shell (Cha-Ching), register-sw (Ho Ho Ho), profile-sheet (test button).
 - 2 Cha-Ching sounds chạy song song không interrupt nhau (mỗi cái 1 Audio instance riêng, 'ended' handler remove từng cái khi xong).
+
+---
+Task ID: 12
+Agent: main (orchestrator)
+Task: Fix Cha-Ching chỉ kêu 1 lần cho đơn đầu tiên — đơn 2, 3 không có tiếng. User muốn mỗi đơn done = 1 Cha-Ching, kể cả kêu liên tục.
+
+Work Log:
+- Root cause analysis: Debug console.log cho thấy `audio.play()` reject với `NotAllowedError: play() failed because the user didn't interact with the document first`.
+- Chrome autoplay policy: HTMLAudioElement.play() yêu cầu "user activation" chỉ kéo dài ~5 giây sau click. Sau 5s, tất cả play() calls fail với NotAllowedError — đây là lý do chỉ đơn đầu tiên (trong window 5s sau login) nghe được, đơn 2/3 thì không.
+- Fix: chuyển từ HTMLAudioElement sang **Web Audio API** (AudioContext + AudioBufferSourceNode):
+  - AudioContext.resume() cũng yêu cầu user activation, nhưng **một khi đã resume, context stays 'running' cho cả session** — không cần per-play user activation nữa.
+  - Mỗi play tạo new AudioBufferSourceNode → independent, overlap OK (Cha-Ching liên tục cho nhiều đơn).
+- Implementation trong app-shell.tsx:
+  - `initAudioContext()`: tạo AudioContext, decode '/pay-notif.mp3' thành AudioBuffer, set refs IMMEDIATELY (trước khi resume — tránh hang nếu user activation expired).
+  - `useEffect` mount: gọi initAudioContext() ngay (user activation từ login click LockScreen có thể còn active), VÀ listen click/touch để retry resume nếu cần.
+  - `useEffect` click listener: mỗi click → ctx.resume() nếu context suspended → transition to 'running'.
+  - `playChaChing()`: nếu ctx+buffer ready → ctx.createBufferSource() + source.start() (Web Audio path, không cần user activation per-play). Fallback: HTMLAudioElement nếu Web Audio chưa ready.
+- Cũng thêm server-side broadcast cho action=update trong /api/orders POST — đảm bảo socket event fire cho mọi order update (không chỉ dựa vào client-side broadcast từ kitchen view).
+- Lint PASS (sau cleanup debug logs).
+- Browser test (pay staff Thu Tiền login fresh qua Caddy port 81):
+  - Login click → AudioContext created state: `running` ✓ (user activation từ login click)
+  - AudioBuffer decoded, duration 5.25s ✓
+  - Tạo 3 orders + mark all done qua API
+  - 3 toasts appeared: "💰 Đơn #69 xong", "💰 Đơn #70 xong", "💰 Đơn #71 xong" ✓
+  - Cha-Ching counter: 6 (3 new + 3 done events, mỗi event 1 source.start()) ✓
+  - Tất cả plays với ctx state: `running` ✓ (không bị NotAllowedError)
+
+Stage Summary:
+- Bug "Cha-Ching chỉ kêu 1 lần" FIXED — root cause là Chrome autoplay policy giới hạn HTMLAudioElement.play() trong 5s sau click.
+- Fix: Web Audio API (AudioContext + AudioBufferSourceNode) — once context is resumed (via login click), unlimited plays without per-play user activation.
+- Mỗi đơn done = 1 Cha-Ching, kể cả 3+ đơn liên tiếp ✓
+- Server-side broadcast cho action=update đảm bảo socket event fire cho mọi order status change.
+- Tất cả vẫn works: 1-order-at-a-time, push subscription, PWA, Ho Ho Ho sound loop 6s iOS, QR banking, vibration continuous, polling fallback, Wake Lock, filter admin/pos/pay (new) vs admin/pay (done).

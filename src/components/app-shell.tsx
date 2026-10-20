@@ -60,24 +60,133 @@ export function AppShell() {
   const shouldHearChaChingForNew = !!user && user.view !== 'kitchen'
   const shouldHearChaChingForDone = !!user && currentView === 'pay'
 
+  /**
+   * Play the "Cha-Ching Money" sound — uses Web Audio API instead of
+   * HTMLAudioElement to bypass Chrome's strict autoplay policy.
+   *
+   * Chrome's autoplay policy: HTMLAudioElement.play() requires "user
+   * activation" that lasts only ~5 seconds after a click. After 5s, all
+   * subsequent play() calls fail with NotAllowedError — which is why
+   * Cha-Ching only played for the FIRST order and not subsequent ones.
+   *
+   * Web Audio API's AudioContext.resume() also requires user activation,
+   * BUT once resumed, the AudioContext stays active for the entire session.
+   * We can create unlimited AudioBufferSourceNode instances and start()
+   * them without any per-play user activation requirement. Each source
+   * node is independent — multiple Cha-Chings can play in parallel
+   * (overlapping), exactly what the user wants for multi-order scenarios.
+   */
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const audioBufferRef = useRef<AudioBuffer | null>(null)
+  const audioInitPromiseRef = useRef<Promise<void> | null>(null)
+
+  async function initAudioContext(): Promise<void> {
+    if (audioContextRef.current && audioBufferRef.current) return
+    if (audioInitPromiseRef.current) return audioInitPromiseRef.current
+    audioInitPromiseRef.current = (async () => {
+      try {
+        const Ctor = window.AudioContext || (window as any).webkitAudioContext
+        if (!Ctor) return
+        const ctx = new Ctor()
+        // IMPORTANT: set the ref IMMEDIATELY (before resume()).
+        // ctx.resume() requires user activation and may hang if the
+        // activation has expired. By setting the ref first, playChaChing()
+        // can still use the context (and try to resume it) even if the
+        // initial resume() didn't complete.
+        audioContextRef.current = ctx
+        // Decode the audio file — works even when context is suspended.
+        const response = await fetch('/pay-notif.mp3')
+        const arrayBuffer = await response.arrayBuffer()
+        const buffer = await ctx.decodeAudioData(arrayBuffer)
+        audioBufferRef.current = buffer
+        // Try to resume the context (fire-and-forget, don't await — may hang).
+        if (ctx.state === 'suspended') {
+          void ctx.resume().catch(() => {})
+        }
+      } catch (e) {
+        // Fall back to HTMLAudioElement in playChaChing() below.
+      }
+    })()
+    return audioInitPromiseRef.current
+  }
+
+  // Listen for ALL user clicks/touches and try to resume the AudioContext.
+  // Each click grants user activation — if the context is suspended,
+  // resume() will succeed and the context will transition to 'running'.
+  // Once running, it stays running for the entire session.
+  useEffect(() => {
+    const onResumeClick = () => {
+      const ctx = audioContextRef.current
+      if (ctx && ctx.state === 'suspended') {
+        void ctx.resume().catch(() => {})
+      }
+    }
+    document.addEventListener('click', onResumeClick)
+    document.addEventListener('touchstart', onResumeClick)
+    return () => {
+      document.removeEventListener('click', onResumeClick)
+      document.removeEventListener('touchstart', onResumeClick)
+    }
+  }, [])
+
+  // Initialize the AudioContext ASAP. The user already clicked the login
+  // button on the LockScreen (which is a user interaction that grants
+  // sticky activation for ~5 seconds). By the time AppShell mounts, that
+  // activation may still be valid — so we try to init immediately. If it
+  // fails (activation expired), we also listen for the NEXT click/touch
+  // to retry. Once the AudioContext is resumed successfully, it stays
+  // active for the entire session — no per-play user activation needed.
+  useEffect(() => {
+    // Try to init immediately (user activation from login click may still be active).
+    void initAudioContext()
+    // Also listen for the next click/touch — if the immediate init failed
+    // (e.g., user activation expired during login fetch), a subsequent
+    // click will unlock the AudioContext.
+    const onFirstInteraction = () => {
+      void initAudioContext()
+      document.removeEventListener('click', onFirstInteraction)
+      document.removeEventListener('touchstart', onFirstInteraction)
+    }
+    document.addEventListener('click', onFirstInteraction)
+    document.addEventListener('touchstart', onFirstInteraction)
+    return () => {
+      document.removeEventListener('click', onFirstInteraction)
+      document.removeEventListener('touchstart', onFirstInteraction)
+    }
+  }, [])
+
   function playChaChing() {
+    // Preferred path: Web Audio API (works without per-play user activation).
+    const ctx = audioContextRef.current
+    const buffer = audioBufferRef.current
+    if (ctx && buffer) {
+      // If the context is suspended, try to resume it first (fire-and-forget).
+      if (ctx.state === 'suspended') {
+        void ctx.resume().catch(() => {})
+      }
+      try {
+        // Create a new source node for each play — they're independent,
+        // so multiple Cha-Chings can play in parallel (overlapping).
+        const source = ctx.createBufferSource()
+        source.buffer = buffer
+        source.connect(ctx.destination)
+        source.start()
+        return
+      } catch (e) {
+        // Fall through to HTMLAudioElement fallback.
+      }
+    }
+    // Fallback: HTMLAudioElement (may fail with NotAllowedError if no
+    // recent user interaction — but at least it works for the first few
+    // plays after a click).
     try {
       const audio = new Audio('/pay-notif.mp3')
       audio.style.display = 'none'
       document.body.appendChild(audio)
-      // Remove the audio element when playback ENDS — not after a fixed
-      // timeout. The Cha-Ching clip is ~5.25 seconds long; using a 3-second
-      // timeout was interrupting it mid-play ("bị ngắt giữa chừng").
-      // The 'ended' event fires when the audio finishes naturally.
       audio.addEventListener('ended', () => {
         try { document.body.removeChild(audio) } catch (e) {}
       })
-      // Also clean up if playback fails to start (so we don't leak elements).
-      audio.addEventListener('error', () => {
-        try { document.body.removeChild(audio) } catch (e) {}
-      })
       void audio.play().catch(() => {
-        // Autoplay blocked — clean up immediately.
         try { document.body.removeChild(audio) } catch (e) {}
       })
     } catch {}
@@ -186,7 +295,7 @@ export function AppShell() {
   useEffect(() => {
     if (!user) return
     const socket = getSocket('cafe')
-    // refresh badges on connect (initial fetch on mount)
+    // refresh badges on connect (initial fetch on mount — standard fetch+setState pattern)
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshBadges()
     const interval = setInterval(() => { void refreshBadges() }, 10000)

@@ -162,6 +162,20 @@ export async function POST(req: NextRequest) {
         }
       }
       const updated = await db.order.update({ where: { id }, data, include: { items: true } })
+
+      // SERVER-SIDE BROADCAST for order updates (status change to making/done/paid/canceled).
+      // This is the AUTHORITATIVE source of truth — even if the client-side
+      // broadcast (e.g., from kitchen view's broadcastOrderUpdate) fails or
+      // is delayed, the server-side broadcast ensures all other tabs receive
+      // the update immediately. Critical for Cha-Ching sound on Pay view
+      // when kitchen marks orders done — must fire for EACH order, not just
+      // the first one.
+      try {
+        broadcastOrderUpdate('cafe', updated)
+      } catch (e) {
+        console.warn('[orders] update broadcast failed:', (e as Error).message)
+      }
+
       return NextResponse.json({ ok: true, order: updated })
     }
 
