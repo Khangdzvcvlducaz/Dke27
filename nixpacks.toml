@@ -9,9 +9,8 @@ cacheDirs = ["/root/.bun/install/cache"]
 cmds = ["bun run db:generate", "bun run build"]
 
 [start]
-# Use the start.sh script — handles db:push + both services
-# Railway executes this directly (no shell needed for the script path)
-cmd = "bash start.sh"
+# Use start.sh — runs db:push + custom-server (Next.js + Socket.io same port)
+cmd = "sh start.sh"
 
 [variables]
 PORT = "3000"

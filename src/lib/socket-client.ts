@@ -4,12 +4,40 @@ import { io, Socket } from 'socket.io-client'
 
 let socket: Socket | null = null
 
-// IMPORTANT: the realtime-sync mini-service runs on port 3030 (separate from
-// Next.js on port 3000). The Caddy gateway routes to port 3030 ONLY when the
-// request URL contains ?XTransformPort=3030. Without this query, requests to
-// "/" go to Next.js (which doesn't speak socket.io) and the connection fails
-// silently — causing kitchen view to never receive realtime updates.
-const SOCKET_URL = '/?XTransformPort=3030'
+// IMPORTANT: On the sandbox, the realtime-sync mini-service runs on port 3030
+// and the Caddy gateway routes to it ONLY when ?XTransformPort=3030 is in the
+// URL. On Railway/Render/Fly.io, Socket.io runs on the SAME port as Next.js
+// (via custom-server.js) — so we connect to the same origin without the query.
+//
+// Detect environment:
+// - If running on Caddy (port 81) or localhost:3000 without Railway → use
+//   XTransformPort=3030 routing.
+// - If running on Railway (custom-server.js merged Socket.io) → connect
+//   directly to same origin.
+//
+// We detect by checking if window.location.port is 81 (Caddy) or if we're
+// on a Railway domain (*.up.railway.app).
+function detectSocketUrl(): string {
+  if (typeof window === 'undefined') return '/?XTransformPort=3030'
+  const host = window.location.hostname || ''
+  const port = window.location.port || ''
+  // Railway domains: *.up.railway.app, *.railway.app
+  // Render domains: *.onrender.com
+  // Fly.io domains: *.fly.dev
+  if (host.includes('railway.app') || host.includes('onrender.com') || host.includes('fly.dev')) {
+    // Cloud deployment — Socket.io is merged into Next.js (same port, same origin)
+    return '/'
+  }
+  // Sandbox/local — use Caddy XTransformPort routing
+  if (port === '81') {
+    return '/?XTransformPort=3030'
+  }
+  // localhost without Caddy → try direct connection to same origin
+  // (custom-server.js handles it)
+  return '/'
+}
+
+const SOCKET_URL = detectSocketUrl()
 
 export function getSocket(room: string): Socket {
   if (socket && socket.connected) return socket

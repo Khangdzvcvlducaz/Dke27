@@ -19,7 +19,13 @@ function getSocket(): Socket | null {
   if (_connecting) return null
   // Mini-service runs on localhost:3030 (configured in Caddyfile as the
   // XTransformPort target). Server-side we connect directly to that port.
-  const url = process.env.REALTIME_URL || 'http://localhost:3030'
+  // On cloud (Railway/Render/Fly.io), Socket.io is merged into the Next.js
+  // server (same port 3000 via custom-server.js). On sandbox/local, the
+  // mini-service runs on localhost:3030.
+  const host = process.env.RAILWAY_PUBLIC_DOMAIN || ''
+  const url = host
+    ? `https://${host}`
+    : (process.env.REALTIME_URL || 'http://localhost:3030')
   _connecting = true
   try {
     _socket = ioc(url, {

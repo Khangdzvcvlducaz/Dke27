@@ -39,12 +39,13 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/mini-services ./mini-services
 
-# Copy start script
+# Copy start script + custom server
 COPY start.sh ./start.sh
+COPY custom-server.js ./custom-server.js
 RUN chmod +x ./start.sh
 
 EXPOSE 3000
 ENV PORT=3000
 
-# Use start.sh script — handles db:push + both services in a single shell
-CMD ["bash", "start.sh"]
+# Use start.sh — runs db:push + custom-server (Next.js + Socket.io same port)
+CMD ["sh", "start.sh"]
