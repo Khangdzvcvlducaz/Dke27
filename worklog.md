@@ -429,3 +429,48 @@ Stage Summary:
 - Filter: chỉ admin/pos/pay nghe Cha-Ching; kitchen staff có Ho Ho Ho riêng.
 - Dedup theo orderId+status: mỗi event type 1 Cha-Ching (1 đơn có thể có 2 Cha-Ching: 1 new + 1 done).
 - Tất cả vẫn works: 1-order-at-a-time, push subscription, PWA, Ho Ho Ho sound loop 6s (iOS kitchen), QR banking dialog, vibration continuous (Android kitchen), polling fallback.
+
+---
+Task ID: 10
+Agent: main (orchestrator)
+Task: Filter Cha-Ching cho 'done' event — CHỈ người thu tiền (trên Pay view) nghe, không phải cashier POS view hay kitchen.
+
+Work Log:
+- User clarification: "lỗi không phải khi bếp làm xong nghe tiếng cha ching mà là qua khâu thu tiền - thì người thu tiền sẽ nghe thấy thông báo cha ching trong phần thu tiền"
+- Phân tích: filter cũ chỉ check role (admin/pos/pay) → admin trên POS view vẫn nghe Cha-Ching khi bếp xong đơn (sai). Cần filter theo CURRENT VIEW:
+  - 'order:new' (Shopify): nghe cho mọi user TRỪ kitchen staff (view='kitchen')
+  - 'order:update status=done': nghe CHỈ khi user đang ở Pay view (currentView === 'pay')
+- Update app-shell.tsx filter:
+  - shouldHearChaChingForNew = !!user && user.view !== 'kitchen'
+  - shouldHearChaChingForDone = !!user && currentView === 'pay'
+- Test 3 sessions (kitchen Bếp A, cashier An admin trên POS view, pay staff Thu Tiền trên Pay view):
+
+  **Test 1: Tạo đơn mới (Shopify-style)**
+  - API tạo đơn #33
+  - Kitchen: 1 audio = notif.mp3 (Ho Ho Ho, kitchen-view's audioRef) ✓
+  - Cashier (POS view): 1 audio = pay-notif.mp3 (Cha-Ching for new) ✓ (admin view !== kitchen → hears)
+  - Pay staff: 1 audio = pay-notif.mp3 (Cha-Ching for new) ✓
+
+  **Test 2: Bếp xong đơn (admin đang ở POS view)**
+  - Kitchen accept + Xong món #34
+  - Kitchen: 1 audio = notif.mp3 (persistent audioRef, NOT Cha-Ching) ✓
+  - Cashier (admin, POS view): 0 pay-notif.mp3 ✓ (filter excludes — currentView !== 'pay')
+  - Pay staff: 1 audio = pay-notif.mp3 (Cha-Ching for done) ✓
+  - Toast: cashier không thấy, pay staff thấy "💰 Đơn #34 xong — chờ thu tiền 15.000₫" ✓
+
+  **Test 3: Admin chuyển sang Pay view, bếp xong đơn**
+  - Cashier (admin) chuyển sang Pay view
+  - Tạo đơn #36, kitchen accept + Xong món
+  - Kitchen: 0 pay-notif.mp3 ✓
+  - Cashier (admin, Pay view): 1 pay-notif.mp3 (Cha-Ching for done) ✓ (currentView === 'pay')
+  - Pay staff: 1 pay-notif.mp3 (Cha-Ching for done) ✓
+  - Toast: cả cashier (Pay view) và pay staff thấy "💰 Đơn #36 xong — chờ thu tiền 15.000₫" ✓
+
+Stage Summary:
+- Filter Cha-Ching 'done' SỬA — giờ lọc theo currentView === 'pay' thay vì role.
+- Admin trên POS view = cashier → KHÔNG nghe Cha-Ching khi bếp xong ✓
+- Admin trên Pay view = pay person → nghe Cha-Ching khi bếp xong ✓
+- Pay staff (luôn trên Pay view) → nghe Cha-Ching khi bếp xong ✓
+- Kitchen staff → KHÔNG nghe Cha-Ching (có Ho Ho Ho) ✓
+- 'order:new' (Shopify-style): vẫn nghe cho mọi user trừ kitchen ✓
+- Tất cả vẫn works: 1-order-at-a-time, push subscription, PWA, Ho Ho Ho loop 6s iOS, QR banking, vibration continuous, polling fallback, Wake Lock, etc.

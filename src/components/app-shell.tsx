@@ -38,15 +38,27 @@ export function AppShell() {
   const seenOrderIdsRef = useRef<Set<string>>(new Set())
 
   /**
-   * Play the "Cha-Ching Money" sound globally — fires whenever a new order
-   * is created (Shopify-style) OR when a kitchen marks an order as done
-   * (ready to collect payment). Each call creates a NEW Audio() instance
-   * so multiple rapid events don't interrupt each other.
+   * Cha-Ching sound filter — based on user role AND current view:
    *
-   * Filter: only plays for admin, POS staff, and Pay staff. Kitchen staff
-   * hear their own Ho Ho Ho sound — they don't need Cha-Ching too.
+   * - 'order:new' (cashier creates order, Shopify-style):
+   *   → Heard by everyone EXCEPT kitchen staff (who hear Ho Ho Ho instead).
+   *     Admin on any view hears it. POS staff (cashier) hears it as
+   *     confirmation that the order was placed. Pay staff hears it as
+   *     a heads-up that a new order is in the pipeline.
+   *
+   * - 'order:update status=done' (kitchen marks order ready for payment):
+   *   → Heard ONLY when the user is currently on the PAY VIEW.
+   *     - Pay staff (always on Pay view) → hears it (their job to collect)
+   *     - Admin on Pay view → hears it (admin is acting as pay person)
+   *     - Admin on POS/Report/Menu view → does NOT hear it (not collecting)
+   *     - Cashier (POS view) → does NOT hear it (already moved to next customer)
+   *     - Kitchen staff → does NOT hear it (they just finished making it)
+   *
+   * The "done" Cha-Ching is the pay person's signal — it fires only for
+   * the person currently responsible for collecting money.
    */
-  const shouldHearChaChing = user && user.role !== 'staff' || user?.view !== 'kitchen'
+  const shouldHearChaChingForNew = !!user && user.view !== 'kitchen'
+  const shouldHearChaChingForDone = !!user && currentView === 'pay'
 
   function playChaChing() {
     try {
@@ -61,29 +73,27 @@ export function AppShell() {
     } catch {}
   }
 
-  // GLOBAL socket listener for Cha-Ching — fires regardless of current view.
-  // This is the Shopify-like behavior: every new order = 1 Cha-Ching, and
-  // every order marked done = 1 Cha-Ching.
+  // GLOBAL socket listener for Cha-Ching — fires based on the filters above.
   useEffect(() => {
     if (!user) return
-    if (!shouldHearChaChing) return // kitchen staff skip
+    if (!shouldHearChaChingForNew && !shouldHearChaChingForDone) return
     const socket = getSocket('cafe')
     const handleOrderEvent = (o: { id: string; code: string; status: string; by?: string; total: number; customer?: string }) => {
+      const isNew = o.status === 'new' || o.status === 'notified'
+      const isDone = o.status === 'done'
+      // Skip events we shouldn't hear based on role/view filter.
+      if (isNew && !shouldHearChaChingForNew) return
+      if (isDone && !shouldHearChaChingForDone) return
+      if (!isNew && !isDone) return
       // Dedup: each order triggers exactly ONE Cha-Ching per event type.
-      // We use a composite key (orderId + status) so a new order Cha-Ching
-      // and a "done" Cha-Ching are separate events.
       const key = `${o.id}:${o.status}`
       if (seenOrderIdsRef.current.has(key)) return
       seenOrderIdsRef.current.add(key)
       setTimeout(() => { seenOrderIdsRef.current.delete(key) }, 30000)
-      // Don't play if the current user is the one who triggered this event
-      // (e.g., cashier creating an order doesn't need their own confirmation).
-      // But the server-side broadcast comes via a different socket, so we
-      // DO receive it — play Cha-Ching anyway as Shopify-like confirmation.
       playChaChing()
-      if (o.status === 'new' || o.status === 'notified') {
+      if (isNew) {
         toast.success(`🔔 Đơn mới ${o.code} — ${o.by || 'Khách'}`)
-      } else if (o.status === 'done') {
+      } else if (isDone) {
         toast.success(`💰 Đơn ${o.code} xong — chờ thu tiền ${fmtVND(o.total)}`)
       }
     }
@@ -91,7 +101,6 @@ export function AppShell() {
     const onUpdate = (o: any) => handleOrderEvent(o)
     socket.on('order:new', onNew)
     socket.on('order:update', onUpdate)
-    // Re-join room on reconnect.
     socket.on('connect', () => {
       socket.emit('join', 'cafe')
     })
@@ -100,7 +109,7 @@ export function AppShell() {
       socket.off('order:update', onUpdate)
       socket.off('connect')
     }
-  }, [user, shouldHearChaChing])
+  }, [user, shouldHearChaChingForNew, shouldHearChaChingForDone])
 
   // Wake Lock — keep the screen on so the tab doesn't sleep and miss
   // socket events (which would silence Cha-Ching in background tabs).
@@ -109,7 +118,8 @@ export function AppShell() {
     if (typeof navigator === 'undefined') return
     if (!('wakeLock' in navigator)) return
     if (!user) return
-    if (!shouldHearChaChing) return // kitchen view has its own wake lock
+    // Skip if user doesn't hear any Cha-Ching (e.g., kitchen staff).
+    if (!shouldHearChaChingForNew && !shouldHearChaChingForDone) return
     let wakeLock: any = null
     const request = async () => {
       try { wakeLock = await (navigator as any).wakeLock.request('screen') } catch {}
@@ -124,7 +134,7 @@ export function AppShell() {
       if (wakeLock?.release) { try { wakeLock.release() } catch {} }
       wakeLock = null
     }
-  }, [user, shouldHearChaChing])
+  }, [user, shouldHearChaChingForNew, shouldHearChaChingForDone])
 
   // Handle deep links from notification clicks: ?open=kitchen&order=ID
   useEffect(() => {
