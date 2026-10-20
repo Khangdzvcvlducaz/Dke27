@@ -54,6 +54,15 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="vi" suppressHydrationWarning>
+      <head>
+        {/* iOS PWA: must have apple-mobile-web-app-capable for iOS Safari
+            to treat the app as a standalone PWA. Without this, Web Push
+            and Service Worker won't work when installed to Home Screen. */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="format-detection" content="telephone=no" />
+      </head>
       <body
         className={`${vietnam.variable} ${oswald.variable} font-sans antialiased`}
       >

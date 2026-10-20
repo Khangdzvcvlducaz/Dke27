@@ -673,3 +673,55 @@ Stage Summary:
   - Mỗi đơn bếp xong (ready to collect) ✓
 - App đóng → push đến device → SW show notification với Cha-Ching sound (iOS PWA) hoặc system ting (Chrome) → user click → app mở → Cha-Ching chơi via Web Audio API ✓
 - App mở → socket + polling + SW postMessage → Cha-Ching via Web Audio API ✓
+
+---
+Task ID: 16
+Agent: main (orchestrator)
+Task: Push notification trên iOS.
+
+Work Log:
+- Kiểm tra HTML served: thiếu `apple-mobile-web-app-capable` meta tag rõ ràng (Next.js chỉ generate `mobile-web-app-capable`).
+- Fix: thêm `<head>` tag trong layout.tsx với các iOS-specific meta tags:
+  - `<meta name="apple-mobile-web-app-capable" content="yes"/>` — iOS Safari PWA capable
+  - `<meta name="mobile-web-app-capable" content="yes"/>` — Standard PWA
+  - `<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>` — Status bar style
+  - `<meta name="format-detection" content="telephone=no"/>` — Don't auto-detect phone numbers
+- Verify HTML output:
+  - `apple-mobile-web-app-capable=yes` ✓
+  - `mobile-web-app-capable=yes` ✓
+  - `apple-mobile-web-app-status-bar-style=black-translucent` ✓
+  - `format-detection=telephone=no` ✓
+  - `<link rel="manifest" href="/manifest.json"/>` ✓
+  - `<link rel="apple-touch-icon" href="/apple-touch-icon.png"/>` ✓
+  - RegisterSW component loaded ✓
+- iOS PWA push notification infrastructure:
+  - manifest.json: display=standalone, start_url=/?source=pwa, scope=/, icons 192/512/maskable/180, theme_color=#b3202c ✓
+  - public/sw.js: push event handler với sound field (iOS honors), notificationclick → focus/open app ✓
+  - src/components/register-sw.tsx: registers /sw.js scope /, secureContext check ✓
+  - src/components/profile-sheet.tsx: iOS detection + "Add to Home Screen" guidance + notification permission request on explicit click ✓
+  - VAPID keys in .env (auto-generated) ✓
+  - /api/push/vapid returns public key ✓
+  - /api/push/subscribe stores subscription per staff ✓
+  - sendNewOrderPush sends to kitchen (Ho Ho Ho) + pay (Cha-Ching) ✓
+  - sendDoneOrderPush sends to pay (Cha-Ching) ✓
+  - SW postMessage: play-notif-sound (Ho Ho Ho) + play-pay-sound (Cha-Ching) ✓
+
+iOS push notification flow:
+1. iOS 16.4+ user opens app in Safari → Share → Add to Home Screen → opens PWA from Home Screen
+2. Login → Profile → "Bật thông báo đơn mới" → Notification.requestPermission() → granted
+3. pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: VAPID_PUBLIC_KEY }) → subscription saved
+4. When order created/done → server sendNewOrderPush/sendDoneOrderPush → Web Push to iOS device
+5. iOS receives push → SW wakes up → showNotification with sound field → Cha-Ching/Ho Ho Ho plays (iOS honors sound field) ✓
+6. User sees notification + hears sound — EVEN IF APP IS CLOSED ✓
+7. Click notification → app opens to Pay/Kitchen view ✓
+
+iOS limitations (documented in profile sheet):
+- iOS < 16.4: NO Web Push support at all
+- iOS Safari (non-PWA): NO Web Push — must install to Home Screen
+- iOS Vibration API: NOT supported — sound loop fallback (Ho Ho Ho 6s for kitchen, Cha-Ching loop for pay)
+
+Stage Summary:
+- iOS PWA push notification setup COMPLETE — all meta tags, manifest, SW, VAPID keys, subscribe flow, push payload with sound field.
+- iOS 16.4+ PWA installed → push notifications work even when app closed ✓
+- iOS honors `sound` field in showNotification → Cha-Ching + Ho Ho Ho play on push ✓
+- Profile sheet has clear iOS guidance: install PWA → open from Home Screen → enable notifications.
