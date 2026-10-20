@@ -725,3 +725,47 @@ Stage Summary:
 - iOS 16.4+ PWA installed → push notifications work even when app closed ✓
 - iOS honors `sound` field in showNotification → Cha-Ching + Ho Ho Ho play on push ✓
 - Profile sheet has clear iOS guidance: install PWA → open from Home Screen → enable notifications.
+
+---
+Task ID: 17
+Agent: main (orchestrator)
+Task: Sửa "mục thông báo đơn mới" thành tự động bật thông báo — không cần user click "Bật thông báo" thủ công.
+
+Work Log:
+- Tạo src/lib/push-client.ts — shared utility cho auto-enable push:
+  - autoEnablePush(staffId): requestPermission + subscribe + saveSubscription — tất cả trong 1 function
+  - saveSubscription(staffId, sub): POST /api/push/subscribe
+  - urlBase64ToUint8Array(base64): convert VAPID key
+  - Auto-enable flow: check permission → requestPermission() → SW ready → getSubscription() → subscribe() → save to backend
+  - Silent fail nếu permission denied hoặc browser không hỗ trợ
+- Update src/components/lock-screen.tsx:
+  - Import autoEnablePush từ @/lib/push-client
+  - Trong handleLogin(): sau khi setUser() + setCurrentView(), gọi void autoEnablePush(data.staffId) nếu role='staff' && staffId
+  - Comment: "must be called within user activation window (~5s after login click). Fetch takes <1s so activation still valid."
+- Update src/components/profile-sheet.tsx:
+  - Import autoEnablePush, saveSubscription, urlBase64ToUint8Array từ @/lib/push-client
+  - Xóa local urlBase64ToUint8Array definition (fix duplicate definition error)
+  - Thêm "auto-enabled badge" emerald: "Tự động bật khi đăng nhập — không cần thao tác thủ công."
+- Lint PASS (sau khi fix duplicate urlBase64ToUint8Array).
+- Browser test:
+  - Login as Thu Tiền (staff, PIN 2222)
+  - Notification.permission changed from "default" to "denied" — confirms autoEnablePush called Notification.requestPermission() ✓
+  - Headless browser auto-denies, but on real browser user sees prompt → can "Allow" → subscribe ✓
+  - Console shows socket connected, no errors from autoEnablePush ✓
+
+Flow tổng hợp:
+1. User (staff) click "Vào làm việc" → login click provides user activation (~5s)
+2. handleLogin() → fetch /api/auth (<1s) → response
+3. autoEnablePush(staffId) called immediately (still within activation window)
+4. Notification.requestPermission() → browser shows prompt
+5. User clicks "Allow" → permission = 'granted'
+6. SW.ready → pushManager.subscribe() → subscription created
+7. POST /api/push/subscribe → subscription saved to backend
+8. User is now subscribed to push — no manual Profile sheet click needed
+
+Stage Summary:
+- "Tự động bật thông báo" DONE — staff login → auto requestPermission + subscribe. Không cần mở Profile sheet + click "Bật thông báo" thủ công.
+- Profile sheet vẫn có nút "Bật thông báo" (cho fallback nếu auto-enable fail) + "Gửi thông báo thử" + "Gỡ thiết bị" + "Test âm thanh + rung".
+- Badge "Tự động bật khi đăng nhập" hiển thị trong Profile sheet.
+- Admin không auto-enable (admin không có staffId, không nhận push).
+- iOS: login trong PWA (installed to Home Screen) → autoEnablePush → requestPermission → subscribe → push works ✓

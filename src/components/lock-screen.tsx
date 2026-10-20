@@ -12,6 +12,7 @@ import { useTheme } from '@/components/theme-provider'
 import { Moon, Sun, Cloud, CloudOff } from 'lucide-react'
 import { useCafeStore } from '@/store/cafe-store'
 import { getSocket } from '@/lib/socket-client'
+import { autoEnablePush } from '@/lib/push-client'
 
 export function LockScreen() {
   const router = useRouter()
@@ -105,6 +106,13 @@ export function LockScreen() {
       setCurrentView(data.role === 'admin' ? 'pos' : data.view || 'pos')
       if (typeof window !== 'undefined') localStorage.setItem('cfh-me', data.name)
       toast.success(`Chào ${data.name}!`)
+      // AUTO-ENABLE push notifications for staff (not admin — admin doesn't
+      // have a staffId or push subscription). This must be called within
+      // the user activation window (~5 seconds after the login click).
+      // The fetch above takes <1s, so the activation is still valid.
+      if (data.role === 'staff' && data.staffId) {
+        void autoEnablePush(data.staffId)
+      }
       router.refresh()
     } catch (e) {
       toast.error((e as Error).message)

@@ -13,6 +13,7 @@ import {
   Power, Smartphone, Apple, Info, ShieldCheck, Volume2,
 } from 'lucide-react'
 import { useCafeStore } from '@/store/cafe-store'
+import { autoEnablePush, saveSubscription, urlBase64ToUint8Array } from '@/lib/push-client'
 
 interface ProfileSheetProps {
   open: boolean
@@ -332,6 +333,12 @@ export function ProfileSheet({ open, onOpenChange }: ProfileSheetProps) {
                 {permBadge()}
               </div>
 
+              {/* Auto-enabled badge */}
+              <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100 rounded-lg p-2 text-xs flex items-center gap-2">
+                <ShieldCheck className="size-3.5" />
+                <span>Tự động bật khi đăng nhập — không cần thao tác thủ công.</span>
+              </div>
+
               {/* State-aware message */}
               {perm === 'denied' && (
                 <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-100 rounded-lg p-3 text-xs space-y-1">
@@ -468,16 +475,4 @@ export function ProfileSheet({ open, onOpenChange }: ProfileSheetProps) {
       </SheetContent>
     </Sheet>
   )
-}
-
-// Convert base64url to Uint8Array for applicationServerKey.
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
-  const rawData = atob(base64)
-  const output = new Uint8Array(rawData.length)
-  for (let i = 0; i < rawData.length; ++i) {
-    output[i] = rawData.charCodeAt(i)
-  }
-  return output
 }
