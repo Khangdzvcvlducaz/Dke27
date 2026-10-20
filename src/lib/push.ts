@@ -56,39 +56,35 @@ export async function sendNewOrderPush(order: OrderForPush): Promise<void> {
   const title = `Đơn mới ${order.code}`
   const body = `${itemsLine}${tableLine}`
 
-  // Find eligible staff (drink-prep role + on shift + opted-in).
-  const eligible = await db.staff.findMany({
+  // Find eligible KITCHEN staff (drink-prep role + on shift + opted-in).
+  // These get the Ho Ho Ho sound + "Nhận pha" action.
+  const kitchenStaff = await db.staff.findMany({
     where: { view: 'kitchen', onShift: true, notifyEnabled: true },
     include: { subscriptions: true },
   })
 
-  if (eligible.length === 0) {
-    // No one to notify — log this so manager can see in audit.
+  // Find eligible PAY staff (on shift + opted-in).
+  // These get the Cha-Ching sound (Shopify-style: new order = potential money).
+  // This ensures pay staff hear Cha-Ching EVEN WHEN THEIR APP TAB IS CLOSED.
+  const payStaff = await db.staff.findMany({
+    where: { view: 'pay', onShift: true, notifyEnabled: true },
+    include: { subscriptions: true },
+  })
+
+  if (kitchenStaff.length === 0 && payStaff.length === 0) {
     await db.notificationLog.create({
-      data: {
-        orderId: order.id,
-        event: 'failed',
-        reason: 'no-eligible-staff',
-      },
+      data: { orderId: order.id, event: 'failed', reason: 'no-eligible-staff' },
     })
     return
   }
 
-  // Build the payload that the SW will use to showNotification.
-  const buildPayloadFor = (staffId: string, staffName: string) => ({
+  // Payload builder for KITCHEN staff — Ho Ho Ho sound, "Nhận pha" action.
+  const buildKitchenPayload = (staffId: string, staffName: string) => ({
     title,
     body,
-    tag: `dke-order-${order.id}`, // collapse duplicates for the same order
-    data: {
-      orderId: order.id,
-      staffId,
-      staffName,
-      targetView: 'kitchen',
-      ts: Date.now(),
-    },
-    // Custom sound (best-effort: Chrome ignores; Safari/iOS may honor).
+    tag: `dke-order-${order.id}`,
+    data: { orderId: order.id, staffId, staffName, targetView: 'kitchen', ts: Date.now() },
     sound: '/notif.mp3',
-    // Vibration pattern — honored on Android Chrome.
     vibrate: [300, 150, 300, 150, 300],
     silent: false,
     requireInteraction: true,
@@ -98,50 +94,66 @@ export async function sendNewOrderPush(order: OrderForPush): Promise<void> {
     ],
   })
 
-  for (const staff of eligible) {
+  // Payload builder for PAY staff — Cha-Ching sound, "Thu tiền" action.
+  // Different tag so it doesn't collapse with the kitchen notification.
+  const buildPayPayload = (staffId: string, staffName: string) => ({
+    title: `🔔 Đơn mới ${order.code}`,
+    body: `${itemsLine}${tableLine} — ${fmtVNDLine(order)}`,
+    tag: `dke-pay-new-${order.id}`,
+    data: { orderId: order.id, staffId, staffName, targetView: 'pay', soundType: 'cha-ching', ts: Date.now() },
+    sound: '/pay-notif.mp3',
+    vibrate: [300, 150, 300, 150, 300],
+    silent: false,
+    requireInteraction: false,
+    actions: [{ action: 'view', title: '👀 Xem' }],
+  })
+
+  // Send to kitchen staff (Ho Ho Ho).
+  for (const staff of kitchenStaff) {
     for (const sub of staff.subscriptions) {
-      const subscription = {
-        endpoint: sub.endpoint,
-        expirationTime: null,
-        keys: { p256dh: sub.p256dhKey, auth: sub.authKey },
-      }
-      try {
-        const result = await webpush.sendNotification(
-          subscription,
-          JSON.stringify(buildPayloadFor(staff.id, staff.name))
-        )
-        // Log success — never log the endpoint or keys.
-        await db.notificationLog.create({
-          data: {
-            orderId: order.id,
-            staffId: staff.id,
-            staffName: staff.name,
-            event: 'sent',
-            status: result.statusCode,
-          },
-        })
-      } catch (err: any) {
-        const statusCode = err?.statusCode || 0
-        const reason = err?.message || 'unknown'
-        await db.notificationLog.create({
-          data: {
-            orderId: order.id,
-            staffId: staff.id,
-            staffName: staff.name,
-            event: 'failed',
-            status: statusCode,
-            reason: reason.slice(0, 200),
-          },
-        })
-        // 404 / 410 = subscription no longer valid → remove it.
-        if (statusCode === 404 || statusCode === 410) {
-          try {
-            await db.pushSubscription.delete({ where: { id: sub.id } })
-          } catch (e) {
-            // ignore
-          }
-        }
-      }
+      await sendPushToSub(sub, order.id, staff.id, staff.name, buildKitchenPayload(staff.id, staff.name))
+    }
+  }
+
+  // Send to pay staff (Cha-Ching).
+  for (const staff of payStaff) {
+    for (const sub of staff.subscriptions) {
+      await sendPushToSub(sub, order.id, staff.id, staff.name, buildPayPayload(staff.id, staff.name))
+    }
+  }
+}
+
+/** Helper: format total VND for push body. */
+function fmtVNDLine(order: OrderForPush): string {
+  // We don't have the total in OrderForPush, so just use items count.
+  return `${order.items.length} món`
+}
+
+/** Helper: send a single push to a subscription, with logging. */
+async function sendPushToSub(
+  sub: { id: string; endpoint: string; p256dhKey: string; authKey: string },
+  orderId: string,
+  staffId: string,
+  staffName: string,
+  payload: any
+): Promise<void> {
+  const subscription = {
+    endpoint: sub.endpoint,
+    expirationTime: null,
+    keys: { p256dh: sub.p256dhKey, auth: sub.authKey },
+  }
+  try {
+    const result = await webpush.sendNotification(subscription, JSON.stringify(payload))
+    await db.notificationLog.create({
+      data: { orderId, staffId, staffName, event: 'sent', status: result.statusCode },
+    })
+  } catch (err: any) {
+    const statusCode = err?.statusCode || 0
+    await db.notificationLog.create({
+      data: { orderId, staffId, staffName, event: 'failed', status: statusCode, reason: (err?.message || 'unknown').slice(0, 200) },
+    })
+    if (statusCode === 404 || statusCode === 410) {
+      try { await db.pushSubscription.delete({ where: { id: sub.id } }) } catch (e) {}
     }
   }
 }
@@ -182,14 +194,7 @@ export async function sendDoneOrderPush(order: OrderForPush): Promise<void> {
     title,
     body,
     tag: `dke-pay-${order.id}`,
-    data: {
-      orderId: order.id,
-      staffId,
-      staffName,
-      targetView: 'pay',
-      soundType: 'cha-ching',
-      ts: Date.now(),
-    },
+    data: { orderId: order.id, staffId, staffName, targetView: 'pay', soundType: 'cha-ching', ts: Date.now() },
     sound: '/pay-notif.mp3',
     vibrate: [300, 150, 300, 150, 300],
     silent: false,
@@ -199,42 +204,7 @@ export async function sendDoneOrderPush(order: OrderForPush): Promise<void> {
 
   for (const staff of eligible) {
     for (const sub of staff.subscriptions) {
-      const subscription = {
-        endpoint: sub.endpoint,
-        expirationTime: null,
-        keys: { p256dh: sub.p256dhKey, auth: sub.authKey },
-      }
-      try {
-        const result = await webpush.sendNotification(
-          subscription,
-          JSON.stringify(buildPayloadFor(staff.id, staff.name))
-        )
-        await db.notificationLog.create({
-          data: {
-            orderId: order.id,
-            staffId: staff.id,
-            staffName: staff.name,
-            event: 'sent',
-            status: result.statusCode,
-          },
-        })
-      } catch (err: any) {
-        const statusCode = err?.statusCode || 0
-        const reason = err?.message || 'unknown'
-        await db.notificationLog.create({
-          data: {
-            orderId: order.id,
-            staffId: staff.id,
-            staffName: staff.name,
-            event: 'failed',
-            status: statusCode,
-            reason: reason.slice(0, 200),
-          },
-        })
-        if (statusCode === 404 || statusCode === 410) {
-          try { await db.pushSubscription.delete({ where: { id: sub.id } }) } catch (e) {}
-        }
-      }
+      await sendPushToSub(sub, order.id, staff.id, staff.name, buildPayloadFor(staff.id, staff.name))
     }
   }
 }
