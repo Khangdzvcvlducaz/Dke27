@@ -390,6 +390,7 @@ function MembersSection({ data }: { data: ReportData }) {
                 <SelectItem value="pos">🧾 Tạo đơn</SelectItem>
                 <SelectItem value="kitchen">☕ Quầy pha</SelectItem>
                 <SelectItem value="pay">💵 Thu tiền</SelectItem>
+                <SelectItem value="report">📊 Báo cáo</SelectItem>
               </SelectContent>
             </Select>
             <Button onClick={addMember} className="btn-push"><Plus className="size-4 mr-1" /> Thêm</Button>
@@ -498,6 +499,7 @@ function OnShiftStaffSection() {
                     {s.view === 'kitchen' && <Badge variant="outline" className="text-[10px]">☕ Quầy pha</Badge>}
                     {s.view === 'pos' && <Badge variant="outline" className="text-[10px]">🧾 POS</Badge>}
                     {s.view === 'pay' && <Badge variant="outline" className="text-[10px]">💵 Thu tiền</Badge>}
+                    {s.view === 'report' && <Badge variant="outline" className="text-[10px]">📊 Báo cáo</Badge>}
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {s.onShift ? 'Đang trên ca' : 'Đang nghỉ'}

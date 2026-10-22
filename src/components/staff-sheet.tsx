@@ -123,6 +123,7 @@ export function StaffSheet({ open, onOpenChange, name }: StaffSheetProps) {
                 <SelectItem value="pos">🧾 Tạo đơn</SelectItem>
                 <SelectItem value="kitchen">☕ Quầy pha</SelectItem>
                 <SelectItem value="pay">💵 Thu tiền</SelectItem>
+                <SelectItem value="report">📊 Báo cáo</SelectItem>
               </SelectContent>
             </Select>
           </div>

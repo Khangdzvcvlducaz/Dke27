@@ -384,6 +384,9 @@ export function AppShell() {
 
   const isAdmin = user.role === 'admin'
   const allowedView: string[] = isAdmin ? ['pos', 'kitchen', 'pay', 'report', 'menu'] : [user.view || 'pos']
+  // Report view is accessible to: admin + staff with view='report'
+  // But staff with view='report' should NOT see the full admin report
+  // (they see the same report page — it's read-only for them)
   const activeView = allowedView.includes(currentView) ? currentView : allowedView[0]
 
   function switchView(v: string) {

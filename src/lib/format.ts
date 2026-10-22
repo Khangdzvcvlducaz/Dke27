@@ -52,12 +52,14 @@ export const VIEWNAME: Record<string, string> = {
   pos: 'Tạo đơn',
   kitchen: 'Quầy pha',
   pay: 'Thu tiền',
+  report: 'Báo cáo',
 }
 
 export const VIEWIC: Record<string, string> = {
   pos: '🧾',
   kitchen: '☕',
   pay: '💵',
+  report: '📊',
 }
 
 export const TABDEF: Record<string, [string, string]> = {
