@@ -7,5 +7,5 @@ echo "=== realtime ==="
 cd mini-services/realtime-sync && bun index.ts &
 
 sleep 2
-echo "=== next start ==="
-exec npx next start -p 3000
+echo "=== next start (PORT=$PORT) ==="
+exec npx next start -H 0.0.0.0 -p ${PORT:-3000}
