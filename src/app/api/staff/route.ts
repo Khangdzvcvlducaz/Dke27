@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 
     if (action === 'delete') {
       const { id } = body
-      await db.staff.delete({ where: { id } })
+      await db.staff.deleteMany({ where: { id } })
       return NextResponse.json({ ok: true })
     }
 
