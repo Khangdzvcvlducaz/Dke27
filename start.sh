@@ -1,6 +1,6 @@
 #!/bin/sh
-# Tables already created during Docker build (RUN npx prisma db push)
-# No need to run db:push at runtime — just start the app
+echo "=== seed staff ==="
+node seed.js 2>&1 || echo "seed warning"
 
 echo "=== realtime ==="
 cd mini-services/realtime-sync && bun index.ts &
