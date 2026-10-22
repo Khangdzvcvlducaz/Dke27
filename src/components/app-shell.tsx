@@ -395,7 +395,7 @@ export function AppShell() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-background/95 backdrop-blur-md border-b-2 border-primary">
+      <header className="sticky top-0 z-30 glass border-b-2 border-primary">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 py-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <BrandLogo variant="mini" logoUrl={logo} cafeName={cafeName} />

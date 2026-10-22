@@ -109,7 +109,7 @@ export function PosView() {
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-36 rounded-2xl" />
+            <div key={i} className="shimmer h-36 rounded-2xl"></div>
           ))}
         </div>
       ) : filtered.length === 0 ? (
@@ -121,22 +121,25 @@ export function PosView() {
           {filtered.map((m, i) => (
             <motion.button
               key={m.id}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: i * 0.02 }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.04, type: 'spring', stiffness: 200, damping: 20 }}
+              whileHover={{ y: -6, scale: 1.03 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => handleAdd(m)}
               disabled={!m.available}
-              className={`group relative bg-card border border-border rounded-2xl p-3 flex flex-col items-center gap-1.5 min-h-[140px] justify-center text-center transition-all hover:border-primary hover:shadow-md active:scale-95 ${!m.available ? 'opacity-50' : ''}`}
+              className={`group relative bg-card border border-border rounded-2xl p-3 flex flex-col items-center gap-1.5 min-h-[140px] justify-center text-center overflow-hidden ${!m.available ? 'opacity-50' : ''}`}
             >
               {m.imageUrl ? (
-                <img src={m.imageUrl} alt={m.name} className="absolute inset-0 w-full h-full object-cover rounded-2xl opacity-20 group-hover:opacity-30 transition-opacity" />
+                <img src={m.imageUrl} alt={m.name} className="absolute inset-0 w-full h-full object-cover rounded-2xl opacity-25 group-hover:opacity-40 group-hover:scale-110 transition-all duration-300" />
               ) : null}
-              <span className="text-3xl relative z-10">{m.icon}</span>
+              <div className="absolute inset-0 bg-gradient-to-t from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <span className="text-3xl relative z-10 group-hover:scale-110 transition-transform">{m.icon}</span>
               <span className="text-sm font-semibold leading-tight relative z-10">{m.name}</span>
-              <span className="text-primary font-bold text-sm tracking-wide relative z-10" style={{ fontFamily: 'var(--font-oswald)' }}>
+              <span className="text-primary font-bold text-sm tracking-wide relative z-10 gradient-text" style={{ fontFamily: 'var(--font-oswald)' }}>
                 {fmtVND(m.price)}
               </span>
-              {!m.available && <Badge variant="destructive" className="absolute top-2 right-2 z-20 text-[10px]">Hết</Badge>}
+              {!m.available && <Badge variant="destructive" className="absolute top-2 right-2 z-20 text-[10px] stamp">Hết</Badge>}
             </motion.button>
           ))}
         </div>

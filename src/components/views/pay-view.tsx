@@ -162,25 +162,35 @@ export function PayView() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-primary text-primary-foreground p-4 rounded-2xl shadow-md">
-        <div className="flex items-center justify-between gap-2">
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-4 rounded-2xl shadow-lg relative overflow-hidden"
+      >
+        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 80% 20%, rgba(255,255,255,0.3) 0%, transparent 50%)' }}></div>
+        <div className="flex items-center justify-between gap-2 relative z-10">
           <div>
             <div className="text-xs uppercase tracking-wide opacity-90" style={{ fontFamily: 'var(--font-oswald)' }}>
               {orders.length} đơn chờ thanh toán
             </div>
-            <b className="text-xl" style={{ fontFamily: 'var(--font-oswald)' }}>{fmtVND(sum)}</b>
+            <b className="text-2xl count-up" style={{ fontFamily: 'var(--font-oswald)' }}>{fmtVND(sum)}</b>
           </div>
           {orders.length > 0 && (
-            <div className="flex items-center gap-1 text-xs opacity-90">
-              <Volume2 className="size-4" />
-              <span>Cha-Ching nghe từ mọi view</span>
+            <div className="flex items-center gap-1 text-xs opacity-90 glow px-2 py-1 rounded-full bg-white/10">
+              <Volume2 className="size-4 float" />
+              <span>Cha-Ching</span>
             </div>
           )}
         </div>
-      </div>
+      </motion.div>
 
       {loading ? (
-        <div className="text-muted-foreground text-center py-6">Đang tải...</div>
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="shimmer h-24 rounded-2xl"></div>
+          ))}
+        </div>
       ) : orders.length === 0 ? (
         <Card><CardContent className="py-12 text-center text-muted-foreground text-sm">
           Quầy pha bấm "Xong món" thì đơn sẽ hiện ở đây để thu tiền.

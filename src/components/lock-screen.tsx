@@ -141,14 +141,20 @@ export function LockScreen() {
       </button>
 
       <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
+        initial={{ opacity: 0, y: 12, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
         className="relative z-[2] w-full max-w-md"
       >
-        <div className="bg-card border border-border rounded-3xl p-6 shadow-xl relative">
+        <div className="glass rounded-3xl p-6 shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 left-6 right-6 h-1.5 rounded-b-md bg-primary" />
-          <div className="pt-2 pb-1 flex justify-center">
+          {/* Coffee steam effect */}
+          <div className="absolute bottom-0 left-1/4 pointer-events-none">
+            <span className="steam" style={{ animationDelay: '0s' }}></span>
+            <span className="steam" style={{ left: '8px', animationDelay: '1s' }}></span>
+            <span className="steam" style={{ left: '16px', animationDelay: '2s' }}></span>
+          </div>
+          <div className="pt-2 pb-1 flex justify-center float">
             <BrandLogo variant="full" logoUrl={logo} cafeName={cafeName} />
           </div>
           <h1 className="text-center text-2xl font-bold mt-2 uppercase tracking-wide" style={{ fontFamily: 'var(--font-oswald)' }}>

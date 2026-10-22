@@ -457,20 +457,32 @@ export function KitchenView() {
           plays sound (Apple doesn't support Vibration API in the browser). */}
       {wait.length > 0 && !myInProgress && user?.staffId && (
         isIOS ? (
-          <div className="bg-primary/10 border border-primary/30 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-primary animate-pulse">
-            <Volume2 className="size-4" />
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="glass border border-primary/40 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-primary glow"
+          >
+            <Volume2 className="size-4 float" />
             <span>🔔 Đang phát âm thanh "Ho Ho Ho" liên tục để báo có đơn chờ — bấm "Nhận pha" để dừng. iOS không hỗ trợ rung; bật âm thanh hệ thống để nghe rõ.</span>
-          </div>
+          </motion.div>
         ) : 'vibrate' in navigator ? (
-          <div className="bg-primary/10 border border-primary/30 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-primary animate-pulse">
-            <Vibrate className="size-4" />
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="glass border border-primary/40 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-primary glow"
+          >
+            <Vibrate className="size-4 float" />
             <span>Thiết bị đang rung liên tục + phát âm thanh để báo có đơn chờ — bấm "Nhận pha" để dừng.</span>
-          </div>
+          </motion.div>
         ) : (
-          <div className="bg-primary/10 border border-primary/30 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-primary animate-pulse">
-            <Volume2 className="size-4" />
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="glass border border-primary/40 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-primary"
+          >
+            <Volume2 className="size-4 float" />
             <span>🔔 Đang phát âm thanh để báo có đơn chờ — thiết bị này không hỗ trợ rung.</span>
-          </div>
+          </motion.div>
         )
       )}
 
