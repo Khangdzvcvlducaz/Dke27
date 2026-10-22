@@ -1,7 +1,6 @@
 #!/bin/sh
-echo "=== db:push ==="
-mkdir -p /app/db
-npx prisma db push --accept-data-loss 2>&1 || echo "db:push warning"
+# Tables already created during Docker build (RUN npx prisma db push)
+# No need to run db:push at runtime — just start the app
 
 echo "=== realtime ==="
 cd mini-services/realtime-sync && bun index.ts &
