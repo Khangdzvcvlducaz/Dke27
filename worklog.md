@@ -889,3 +889,38 @@ Stage Summary:
     git push dke main
   (Hoặc config GitHub PAT: git remote set-url dke https://<TOKEN>@github.com/Khangdzvcvlducaz/Dke27.git rồi push)
 - DB state: 14 đơn test mới (#06-#19) tạo bởi Đỗ Thịnh, pha bởi Bình, thu bởi Kiên. Tổng 19 đơn hôm nay.
+
+---
+Task ID: 21
+Agent: main (orchestrator)
+Task: Bỏ tính năng "Đang thu đơn — chờ 114s" (1-đơn-thu-1-lúc, 2 phút rate-limit).
+
+Work Log:
+- Tìm tất cả reference: grep "Đang thu|chờ \d|2 phút|recentOrder|recentPayment|2 \* 60 \* 1000|120000" → 2 file:
+  - src/app/api/orders/route.ts (backend rate-limit)
+  - src/components/views/pay-view.tsx (frontend banner + disabled buttons)
+- Backend /api/orders route.ts POST action=update status=paid:
+  - Xóa block check `if (by) { ... findFirst paidBy=by, paidAt>2minAgo ... return 409 }` (17 dòng).
+  - Giờ pay staff có thể thu nhiều đơn liên tiếp, không bị block.
+- Frontend pay-view.tsx:
+  - Xóa import `Clock` từ lucide-react (chỉ dùng cho banner).
+  - Xóa state `collectingUntil` + derived `isCollecting`/`collectRemaining` (4 dòng).
+  - Xóa xử lý 409 error với `recentOrderCode` trong hàm pay() (4 dòng).
+  - Xóa `setCollectingUntil(Date.now() + 2 * 60 * 1000)` sau khi pay thành công.
+  - Xóa banner "Đang thu đơn — chờ {collectRemaining}s / Mỗi lần chỉ thu 1 đơn. Đợi 2 phút để thu đơn tiếp theo." (14 dòng motion.div).
+  - Xóa `disabled={isCollecting}` trên 3 nút (In bill, Tiền mặt, Chuyển khoản).
+  - Xóa `isCollecting ? 'border-border opacity-60' : 'border-border'` → chỉ còn 'border-border'.
+- Lint PASS.
+- Test bằng Agent Browser:
+  - Login Kiên (pay staff, PIN 6767) → vào 💵 Thu tiền → KHÔNG còn banner "Đang thu đơn — chờ" ✓
+  - Tạo 2 đơn status=done qua script → hiện trong pay view "2 ĐƠN CHỜ THANH TOÁN".
+  - Thu cả 2 nhanh qua API (by=Kiên, cách nhau <1s): cả 2 trả `{"ok":true}` — KHÔNG bị 409 block ✓
+  - Reload pay view → "0 ĐƠN CHỜ THANH TOÁN" (cả 2 đã paid, biến mất khỏi list) ✓
+- Commit 5bd0d93 "bỏ tính năng 1-đơn-thu-1-lúc (Đang thu đơn — chờ 114s)".
+
+Stage Summary:
+- ✅ Tính năng "1-đơn-thu-1-lúc" hoàn toàn bị xóa khỏi cả backend + frontend.
+- ✅ Pay staff giờ có thể thu nhiều đơn liên tiếp không giới hạn — không còn countdown 2 phút, không còn banner vàng "Đang thu đơn — chờ Ns".
+- ✅ Các nút In bill / Tiền mặt / Chuyển khoản luôn enabled (không bị disabled).
+- ✅ Code gọn hơn: -48 dòng (17 backend + 31 frontend), +5 dòng (do format).
+- ⚠️ GitHub push vẫn cần user tự làm (sandbox thiếu auth).
