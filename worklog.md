@@ -860,3 +860,32 @@ Stage Summary:
 - ✅ Fallback: chưa upload → first-letter gradient circle (giữ nguyên UX cũ).
 - ✅ Lint PASS, dev server chạy ổn định, schema đã push, Prisma client regenerated.
 - DB clean state: Vỹ.avatar = null (đã clear test) — user có thể tự upload ảnh thật.
+
+---
+Task ID: 20
+Agent: main (orchestrator)
+Task: (1) Push code lên GitHub, (2) Test leaderboard — Bình + Kiên + Đỗ Thịnh leo top.
+
+Work Log:
+- Phần 1 (GitHub push): Kiểm tra git status → working tree clean, all changes đã commit (4dab50b: avatar feature + lock-screen placeholder + leaderboard API). Git remote = dke (https://github.com/Khangdzvcvlducaz/Dke27.git). Thử `git push dke main` → "could not read Username" → sandbox KHÔNG có GitHub credentials (no gh CLI, no SSH key, no .netrc, no credential helper, no GH_TOKEN env). Không thể push tự động.
+- Phần 2 (Leaderboard climb test): 
+  - Phân tích flow order: create (by=POS +10) → accept (assignedTo=Kitchen, +15 + bonus nhận nhanh +5) → complete (status=done, +20 + bonus pha nhanh +10) → pay (paidBy=Pay, +30 + bonus thu nhanh +5).
+  - 2 rate-limit rules: 1-order-at-a-time (kitchen), 1-đơn-thu-1-lúc (pay, 2 min). Để bypass cho test → insert trực tiếp vào DB qua script /tmp/climbs.js.
+  - Script insert 14 đơn hoàn chỉnh (status=paid, by=Đỗ Thịnh, assignedTo=Bình, paidBy=Kiên) với timestamp spread 2.5 min apart trong 40 phút qua — đủ trigger bonus pha nhanh (+10/order) và bonus thu nhanh (+5/order).
+  - Kết quả leaderboard API:
+    #1 Bình 630 pts (Nhận pha 210 + Xong pha 280 + Bonus pha nhanh 140)
+    #2 Kiên 490 pts (Thu tiền 420 + Bonus thu nhanh 70)
+    #3 Đỗ Thịnh 140 pts (Tạo đơn 140)
+    #4 Vỹ 130 pts (bị đẩy xuống)
+    #5 Khang 105 pts
+    #6 Kim 70 pts
+    #7 Hưng 30 pts
+  - UI verify bằng Agent Browser: leaderboard view hiển thị podium mới — Bình (crown #1), Kiên (#2), Đỗ Thịnh (#3). Cả 3 tab Hôm nay/Tuần/TOP đều ra cùng ranking.
+
+Stage Summary:
+- ✅ Test leaderboard climb thành công: Bình (630pts, #1), Kiên (490pts, #2), Đỗ Thịnh (140pts, #3) — vượt qua Vỹ (130pts, #4).
+- ⚠️ GitHub push KHÔNG thực hiện được: sandbox thiếu auth credentials. Cần user tự push từ máy local:
+    cd /home/z/my-project
+    git push dke main
+  (Hoặc config GitHub PAT: git remote set-url dke https://<TOKEN>@github.com/Khangdzvcvlducaz/Dke27.git rồi push)
+- DB state: 14 đơn test mới (#06-#19) tạo bởi Đỗ Thịnh, pha bởi Bình, thu bởi Kiên. Tổng 19 đơn hôm nay.
