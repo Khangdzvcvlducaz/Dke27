@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     if (action === 'add') {
       const { icon, name, price, imageUrl } = body
       if (!name || !price) return NextResponse.json({ error: 'Thiếu tên hoặc giá' }, { status: 400 })
-      const maxSort = await db.menuItem.max({ _max: { sortOrder: true } }).catch(() => ({ _max: { sortOrder: 0 } }))
+      const maxSort = await db.menuItem.aggregate({ _max: { sortOrder: true } }).catch(() => ({ _max: { sortOrder: 0 } }))
       const item = await db.menuItem.create({
         data: {
           icon: icon || '☕',
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 
     if (action === 'delete') {
       const { id } = body
-      await db.menuItem.delete({ where: { id } })
+      await db.menuItem.deleteMany({ where: { id } })
       return NextResponse.json({ ok: true })
     }
 

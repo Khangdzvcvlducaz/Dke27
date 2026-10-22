@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
 
     if (action === 'delete') {
       const { id } = body
-      await db.discount.delete({ where: { id } })
+      await db.discount.deleteMany({ where: { id } })
       return NextResponse.json({ ok: true })
     }
 
