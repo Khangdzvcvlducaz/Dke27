@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import { fmtVND } from '@/lib/format'
 import { useCafeStore } from '@/store/cafe-store'
-import { Trophy, Crown, Medal, ChevronDown, ChevronUp } from 'lucide-react'
+import { Crown, ChevronDown, ChevronUp } from 'lucide-react'
 
 interface RankedStaff {
   name: string
@@ -18,15 +18,7 @@ interface RankedStaff {
 const PERIODS = [
   { id: 'today', label: 'Hôm nay' },
   { id: 'week', label: 'Tuần' },
-  { id: 'month', label: 'Tháng' },
-  { id: 'all', label: 'Tất cả' },
-]
-
-const MEDALS = ['🥇', '🥈', '🥉']
-const MEDAL_COLORS = [
-  'from-amber-400 to-yellow-500',
-  'from-gray-300 to-gray-400',
-  'from-amber-600 to-amber-700',
+  { id: 'all', label: 'TOP' },
 ]
 
 export function LeaderboardView() {
@@ -60,140 +52,192 @@ export function LeaderboardView() {
   const maxPoints = ranked[0]?.points || 1
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-semibold uppercase tracking-wide flex items-center gap-2" style={{ fontFamily: 'var(--font-oswald)' }}>
-        <Trophy className="size-5 text-amber-500" /> Xếp hạng
-      </h2>
+    <div className="rounded-3xl overflow-hidden bg-gradient-to-b from-primary to-primary/80 shadow-2xl">
+      <div className="p-5 sm:p-6">
+        {/* Header */}
+        <h2 className="text-center text-white text-lg font-bold uppercase tracking-[3px] mb-4" style={{ fontFamily: 'var(--font-oswald)' }}>
+          Leaderboard
+        </h2>
 
-      {/* Period filter */}
-      <div className="flex gap-2">
-        {PERIODS.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => setPeriod(p.id)}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${period === p.id ? 'bg-primary text-primary-foreground border-primary' : 'border-border bg-card text-muted-foreground'}`}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
-      {loading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="shimmer h-16 rounded-2xl"></div>
+        {/* Tab navigation — pill buttons */}
+        <div className="flex justify-center gap-2 mb-6">
+          {PERIODS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setPeriod(p.id)}
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                period === p.id
+                  ? 'bg-amber-400 text-primary shadow-md'
+                  : 'text-white/70 hover:text-white'
+              }`}
+            >
+              {p.label}
+            </button>
           ))}
         </div>
-      ) : ranked.length === 0 ? (
-        <div className="text-center text-muted-foreground py-12 text-sm border border-dashed border-border rounded-2xl">
-          Chưa có dữ liệu xếp hạng cho kỳ này.
-        </div>
-      ) : (
-        <>
-          {/* Podium — Top 3 */}
-          {top3.length > 0 && (
-            <div className="flex items-end justify-center gap-2 sm:gap-4 py-4">
-              {/* 2nd place */}
-              {top3[1] && (
-                <PodiumCard staff={top3[1]} rank={1} maxPoints={maxPoints} isMe={top3[1].name === user?.name} />
-              )}
-              {/* 1st place */}
-              {top3[0] && (
-                <PodiumCard staff={top3[0]} rank={0} maxPoints={maxPoints} isMe={top3[0].name === user?.name} />
-              )}
-              {/* 3rd place */}
-              {top3[2] && (
-                <PodiumCard staff={top3[2]} rank={2} maxPoints={maxPoints} isMe={top3[2].name === user?.name} />
-              )}
-            </div>
-          )}
 
-          {/* Rest of ranking */}
-          {rest.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-xs text-muted-foreground uppercase font-semibold px-2" style={{ fontFamily: 'var(--font-oswald)' }}>
-                Bảng xếp hạng
+        {loading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="shimmer h-14 rounded-2xl"></div>
+            ))}
+          </div>
+        ) : ranked.length === 0 ? (
+          <div className="text-center text-white/60 py-12 text-sm">
+            Chưa có dữ liệu xếp hạng.
+          </div>
+        ) : (
+          <>
+            {/* Podium Top 3 */}
+            {top3.length > 0 && (
+              <div className="flex items-end justify-center gap-2 sm:gap-4 mb-6">
+                {/* 2nd place */}
+                {top3[1] && (
+                  <PodiumCard staff={top3[1]} rank={2} maxPoints={maxPoints} isMe={top3[1].name === user?.name} />
+                )}
+                {/* 1st place */}
+                {top3[0] && (
+                  <PodiumCard staff={top3[0]} rank={1} maxPoints={maxPoints} isMe={top3[0].name === user?.name} />
+                )}
+                {/* 3rd place */}
+                {top3[2] && (
+                  <PodiumCard staff={top3[2]} rank={3} maxPoints={maxPoints} isMe={top3[2].name === user?.name} />
+                )}
               </div>
-              {rest.map((s, i) => {
-                const rank = i + 4
-                const isMe = s.name === user?.name
-                const isExpanded = expanded === s.name
-                return (
-                  <div key={s.name}>
-                    <motion.div
-                      layout
-                      onClick={() => setExpanded(isExpanded ? null : s.name)}
-                      className={`flex items-center gap-3 rounded-xl p-3 border cursor-pointer transition-all ${isMe ? 'border-primary bg-accent/40' : 'border-border bg-card'} hover:border-primary/50`}
-                    >
-                      <span className="text-sm font-bold text-muted-foreground w-6 text-center" style={{ fontFamily: 'var(--font-oswald)' }}>
-                        {rank}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <b className="text-sm">{s.name}</b>
-                        {isMe && <span className="ml-2 bg-primary text-primary-foreground text-[10px] px-1.5 rounded-full">Bạn</span>}
+            )}
+
+            {/* List — ranks 4+ */}
+            {rest.length > 0 && (
+              <div className="bg-white/95 dark:bg-card rounded-2xl p-2 space-y-1">
+                {rest.map((s, i) => {
+                  const rank = i + 4
+                  const isMe = s.name === user?.name
+                  const isExpanded = expanded === s.name
+                  return (
+                    <div key={s.name}>
+                      <div
+                        onClick={() => setExpanded(isExpanded ? null : s.name)}
+                        className={`flex items-center gap-3 rounded-xl px-3 py-2.5 cursor-pointer transition-all ${
+                          isMe ? 'bg-amber-50 dark:bg-amber-950/30 ring-1 ring-primary' : 'hover:bg-muted/50'
+                        }`}
+                      >
+                        <span className="text-sm font-bold text-muted-foreground w-5 text-center" style={{ fontFamily: 'var(--font-oswald)' }}>
+                          {rank}
+                        </span>
+                        {/* Avatar circle */}
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shrink-0">
+                          <span className="text-white text-xs font-bold">{s.name.charAt(0)}</span>
+                        </div>
+                        <span className="flex-1 text-sm font-semibold truncate">{s.name}</span>
+                        {isMe && <span className="bg-primary text-primary-foreground text-[10px] px-1.5 rounded-full shrink-0">Bạn</span>}
+                        <b className="text-amber-600 text-sm whitespace-nowrap" style={{ fontFamily: 'var(--font-oswald)' }}>
+                          {s.points}
+                          <span className="text-xs text-muted-foreground ml-1">pts</span>
+                        </b>
+                        {isExpanded
+                          ? <ChevronUp className="size-4 text-muted-foreground shrink-0" />
+                          : <ChevronDown className="size-4 text-muted-foreground shrink-0" />}
                       </div>
-                      <div className="w-24 h-2 bg-secondary rounded-full overflow-hidden hidden sm:block">
-                        <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${(s.points / maxPoints) * 100}%` }}></div>
-                      </div>
-                      <b className="text-primary text-sm w-16 text-right" style={{ fontFamily: 'var(--font-oswald)' }}>
-                        {s.points}
-                      </b>
-                      {isExpanded ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
-                    </motion.div>
-                    <AnimatePresence>
-                      {isExpanded && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          className="overflow-hidden"
-                        >
-                          <div className="ml-9 mr-3 mb-2 space-y-1">
-                            {s.breakdown.map((b, j) => (
-                              <div key={j} className="flex justify-between text-xs text-muted-foreground py-1 border-b border-dashed border-border last:border-0">
-                                <span>{b.action} ({b.count} lần)</span>
-                                <b className={b.pts >= 0 ? 'text-primary' : 'text-destructive'}>
-                                  {b.pts >= 0 ? '+' : ''}{b.pts}
-                                </b>
-                              </div>
-                            ))}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </>
-      )}
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="ml-8 mr-3 mb-1 space-y-0.5">
+                              {s.breakdown.map((b, j) => (
+                                <div key={j} className="flex justify-between text-xs text-muted-foreground py-1 border-b border-dashed border-border last:border-0">
+                                  <span>{b.action} ({b.count}×)</span>
+                                  <b className={b.pts >= 0 ? 'text-primary' : 'text-destructive'}>
+                                    {b.pts >= 0 ? '+' : ''}{b.pts}
+                                  </b>
+                                </div>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }
 
+/** Podium card for Top 3 — circular avatar, crown for #1, medal gradient */
 function PodiumCard({ staff, rank, maxPoints, isMe }: { staff: RankedStaff; rank: number; maxPoints: number; isMe: boolean }) {
-  const heights = ['h-32', 'h-24', 'h-20']
-  const order = rank === 0 ? 1 : rank === 1 ? 0 : 2
+  // Sizes: rank 1 = largest, rank 2/3 = smaller
+  const avatarSize = rank === 1 ? 'w-20 h-20 sm:w-24 sm:h-24' : 'w-16 h-16 sm:w-20 sm:h-20'
+  const scoreSize = rank === 1 ? 'text-2xl' : 'text-xl'
+  const crown = rank === 1
+  const rankLabel = rank === 1 ? '' : `${rank}`
+
+  // Order: 2 - 1 - 3
+  const order = rank === 1 ? 1 : rank === 2 ? 0 : 2
+
+  // Avatar gradient: gold for 1, silver for 2, bronze for 3
+  const gradients = [
+    '',
+    'from-amber-400 to-yellow-600', // gold
+    'from-gray-300 to-gray-500',     // silver
+    'from-amber-600 to-amber-800',  // bronze
+  ]
+  const gradient = rank === 1 ? gradients[1] : rank === 2 ? gradients[2] : gradients[3]
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: rank * 0.15, type: 'spring', stiffness: 200, damping: 20 }}
       className="flex flex-col items-center"
       style={{ order }}
     >
-      <div className="text-3xl mb-1">{MEDALS[rank]}</div>
-      <div className={`relative ${heights[rank]} w-20 sm:w-28 rounded-t-xl bg-gradient-to-b ${MEDAL_COLORS[rank]} flex flex-col items-center justify-start pt-2 px-1 ${isMe ? 'ring-2 ring-primary ring-offset-2' : ''}`}>
-        <b className="text-sm truncate w-full text-center text-white" style={{ fontFamily: 'var(--font-oswald)' }}>
-          {staff.name}
-        </b>
-        <b className="text-lg text-white mt-1" style={{ fontFamily: 'var(--font-oswald)' }}>
-          {staff.points}
-        </b>
-        <span className="text-[10px] text-white/80">pts</span>
+      {/* Crown for #1 */}
+      {crown && (
+        <motion.div
+          initial={{ scale: 0, rotate: -20 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ delay: 0.5, type: 'spring', stiffness: 300, damping: 15 }}
+        >
+          <Crown className="size-6 text-amber-300 mb-1" fill="currentColor" />
+        </motion.div>
+      )}
+
+      {/* Rank number for 2/3 */}
+      {!crown && (
+        <div className="text-white/80 text-xs font-bold mb-1" style={{ fontFamily: 'var(--font-oswald)' }}>
+          {rankLabel}
+        </div>
+      )}
+
+      {/* Avatar circle */}
+      <div
+        className={`${avatarSize} rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center shadow-lg ${
+          isMe ? 'ring-2 ring-white ring-offset-2 ring-offset-primary' : ''
+        } ${crown ? 'glow' : ''}`}
+      >
+        <span className="text-white text-lg font-bold" style={{ fontFamily: 'var(--font-oswald)' }}>
+          {staff.name.charAt(0)}
+        </span>
       </div>
+
+      {/* Name */}
+      <span className="text-white text-xs font-semibold mt-1.5 max-w-[80px] truncate">
+        {staff.name}
+      </span>
+
+      {/* Score */}
+      <b className={`text-amber-300 ${scoreSize} mt-0.5`} style={{ fontFamily: 'var(--font-oswald)' }}>
+        {staff.points}
+      </b>
+      <span className="text-white/50 text-[10px]">pts</span>
     </motion.div>
   )
 }
