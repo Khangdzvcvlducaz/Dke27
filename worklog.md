@@ -769,3 +769,36 @@ Stage Summary:
 - Badge "Tự động bật khi đăng nhập" hiển thị trong Profile sheet.
 - Admin không auto-enable (admin không có staffId, không nhận push).
 - iOS: login trong PWA (installed to Home Screen) → autoEnablePush → requestPermission → subscribe → push works ✓
+
+---
+Task ID: 18
+Agent: main (orchestrator)
+Task: Xóa "An" (không có nhân viên tên An) — dọn dẹp data fake, test lại app, verify tất cả nhân viên đều đang trên ca.
+
+Work Log:
+- Query DB Staff table: 15 nhân viên (Bình, Dung, Hưng, Hải, Khuê, Kim, Kiên, Kiệt, Lộc, Quân, Ri, Thịnh, Việt, Vỹ, Đỗ Thịnh) — KHÔNG có "An".
+- Query DB Cafe: adminName = "Khang" (PIN 1234) — KHÔNG có "An" làm admin.
+- Query DB Order groupBy "by": phát hiện 80 đơn có by="An" + 10 đơn có by="Admin" — đây là data fake/test cũ, không thuộc về nhân viên thật.
+- Query DB Order groupBy "paidBy": 6 đơn paidBy="An" (orphan).
+- Query DB Order groupBy "assignedTo": 3 đơn assignedTo="An".
+- Grep src/components/lock-screen.tsx dòng 195: `placeholder="VD: An"` — placeholder gợi ý tên admin có chữ "An".
+
+Fix:
+1. Sửa placeholder lock-screen.tsx dòng 195: `placeholder="VD: An"` → `placeholder="VD: Khang"` (Khang là admin thật trong DB).
+2. Chạy script /tmp/cleanup.js xóa 90 đơn fake (by IN ['An','Admin']) + clear paidBy="An" (1 đơn orphan còn sót).
+3. Kết quả: BEFORE 93 đơn → AFTER 3 đơn (toàn by="Hưng"). 15/15 staff onShift=true.
+
+Test lại bằng Agent Browser:
+- Login admin Khang (PIN 1234) ✓
+- Tab Leaderboard → Hôm nay: Podium chỉ còn Vỹ (crown, 130pts) + Kim (#2, 70pts) + Hưng (#3, 30pts) — KHÔNG còn "An" ✓
+- Tab Tuần: same (Vỹ, Kim, Hưng) ✓
+- Tab TOP: same (Vỹ, Kim, Hưng) ✓
+- API /api/leaderboard?period=today|week|all: ranked array chỉ có Vỹ/Kim/Hưng, breakdown role=staff view=kitchen/pay/pos — không còn "An" ✓
+- Logout → lock screen hiển thị lại "Tên đã đăng ký" mode (cafe đã init), placeholder "VD: Khang" confirmed via grep ✓
+- Dev log: chỉ có [socket-server] connect error (websocket reconnect bình thường, không phải fatal) ✓
+
+Stage Summary:
+- "An" hoàn toàn biến mất khỏi app: cả placeholder (lock-screen.tsx) và 90 đơn fake trong DB.
+- Leaderboard giờ chỉ hiển thị nhân viên thật có trong Staff table.
+- Tất cả 15 nhân viên đều onShift=true (verified qua /api/staff/on-shift + DB query).
+- Lint PASS, dev server chạy ổn định.

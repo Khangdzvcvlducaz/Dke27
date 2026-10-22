@@ -192,7 +192,7 @@ export function LockScreen() {
               </div>
               <div>
                 <Label>Tên bạn (Quản trị viên)</Label>
-                <Input value={adminName} onChange={(e) => setAdminName(e.target.value)} placeholder="VD: An" />
+                <Input value={adminName} onChange={(e) => setAdminName(e.target.value)} placeholder="VD: Khang" />
               </div>
               <div>
                 <Label>Mã PIN Admin (4 chữ số)</Label>
