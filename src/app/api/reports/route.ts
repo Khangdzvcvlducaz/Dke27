@@ -86,10 +86,13 @@ export async function GET(req: NextRequest) {
     const members = [
       { name: cafe?.adminName || 'Admin', role: 'admin', view: null, hasPin: !!cafe?.pinHash, lastLogin: null, loginCount: null, money: byStaff[cafe?.adminName || ''] || { sum: 0, n: 0, cash: 0, transfer: 0 } },
       ...staff.map((s) => ({
+        id: s.id,
         name: s.name,
         role: 'staff' as const,
         view: s.view,
         hasPin: !!s.pinHash,
+        onShift: s.onShift,
+        notifyEnabled: s.notifyEnabled,
         lastLogin: s.lastLogin,
         loginCount: s.loginCount,
         money: byStaff[s.name] || { sum: 0, n: 0, cash: 0, transfer: 0 },

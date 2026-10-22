@@ -31,6 +31,7 @@ interface ReportData {
   transferN: number
   top: { name: string; q: number; revenue: number }[]
   members: {
+    id?: string
     name: string
     role: 'admin' | 'staff'
     view: string | null
@@ -363,7 +364,7 @@ function MembersSection({ data }: { data: ReportData }) {
                   <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setEditing(m.name); setSheetOpen(true) }}>
                     <Pencil className="size-3" /> Sửa
                   </Button>
-                  <Button size="sm" variant="outline" className="h-7 text-xs text-primary border-primary" onClick={() => deleteMember(m.name, m.name)}>
+                  <Button size="sm" variant="outline" className="h-7 text-xs text-primary border-primary" onClick={() => deleteMember(m.id, m.name)}>
                     <Trash2 className="size-3" />
                   </Button>
                 </div>
