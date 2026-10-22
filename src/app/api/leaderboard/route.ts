@@ -103,12 +103,12 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Get staff names + roles for display
+    // Get staff names + roles + avatars for display
     const staff = await db.staff.findMany()
     const cafe = await db.cafe.findUnique({ where: { id: 'default' } })
-    const staffMap = new Map<string, { role: string; view: string }>()
-    staff.forEach((s) => staffMap.set(s.name, { role: 'staff', view: s.view }))
-    if (cafe?.adminName) staffMap.set(cafe.adminName, { role: 'admin', view: 'admin' })
+    const staffMap = new Map<string, { role: string; view: string; avatar: string | null }>()
+    staff.forEach((s) => staffMap.set(s.name, { role: 'staff', view: s.view, avatar: s.avatar }))
+    if (cafe?.adminName) staffMap.set(cafe.adminName, { role: 'admin', view: 'admin', avatar: null })
 
     // Build ranked list
     const ranked = Object.entries(points)
@@ -118,6 +118,7 @@ export async function GET(req: NextRequest) {
         breakdown: data.breakdown,
         role: staffMap.get(name)?.role || 'staff',
         view: staffMap.get(name)?.view || 'pos',
+        avatar: staffMap.get(name)?.avatar || null,
       }))
       .sort((a, b) => b.points - a.points)
 

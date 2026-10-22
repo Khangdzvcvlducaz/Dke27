@@ -27,6 +27,7 @@ model Staff {
   view        String   @default("pos") // pos | kitchen | pay
   onShift     Boolean  @default(false)
   notifyEnabled Boolean @default(false)
+  avatar      String?  // base64 data URL — uploaded by admin, shown in leaderboard + on-shift list
   lastLogin   DateTime?
   loginCount  Int      @default(0)
   createdAt   DateTime @default(now())

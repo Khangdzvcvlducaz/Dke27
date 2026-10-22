@@ -802,3 +802,61 @@ Stage Summary:
 - Leaderboard giờ chỉ hiển thị nhân viên thật có trong Staff table.
 - Tất cả 15 nhân viên đều onShift=true (verified qua /api/staff/on-shift + DB query).
 - Lint PASS, dev server chạy ổn định.
+
+---
+Task ID: 19
+Agent: main (orchestrator)
+Task: Thêm avatar upload cho phần "👥 Nhân viên trên ca & trạng thái thông báo" — ảnh tự động đồng bộ sang phần "🏆 Xếp hạng".
+
+Work Log:
+- Phát hiện section "👥 Nhân viên trên ca" nằm trong report-view.tsx (function OnShiftStaffSection).
+- Phát hiện leaderboard-view.tsx dùng avatar circle dạng first-letter gradient (không có ảnh thật).
+- Schema: thêm field `avatar String?` vào model Staff trong prisma/schema.prisma (base64 data URL).
+- Chạy `bun run db:push` — Prisma client regenerated, column `avatar` thêm vào SQLite.
+- API updates:
+  - /api/staff GET: thêm `avatar: s.avatar` vào response mapping.
+  - /api/staff POST: thêm 2 action mới:
+    - `setAvatar` { id, avatar } — lưu base64 data URL, max 2.5MB.
+    - `clearAvatar` { id } — set avatar = null.
+  - /api/staff/on-shift GET: thêm `avatar: s.avatar` vào staff mapping.
+  - /api/leaderboard GET: staffMap thêm `avatar` field, ranked output include `avatar` từ Staff table.
+- Frontend updates:
+  - report-view.tsx OnShiftStaffSection:
+    - Thêm `avatar: string | null` vào staff state type.
+    - Import `useCafeStore` để check `user.role === 'admin'` (chỉ admin được upload/gỡ).
+    - Thêm function `uploadAvatar(file, staffId, staffName)`: FileReader → Image → canvas cover-crop 256×256 → toDataURL PNG → POST /api/staff setAvatar → broadcastStaffUpdate('cafe') → reload.
+    - Thêm function `clearAvatar(staffId, staffName)`: confirm → POST /api/staff clearAvatar → broadcastStaffUpdate → reload.
+    - Render: mỗi staff card có avatar circle 48×48 (gradient theo role: kitchen=orange→red, pay=emerald→teal, report=violet→purple, pos=sky→blue). Nếu có avatar → img object-cover, không thì first-letter (uppercase). Admin thấy camera badge (Click to upload) + X badge (gỡ ảnh) khi đã có avatar.
+    - Thêm hint text: "Bấm vào ảnh tròn để tải ảnh đại diện lên — ảnh tự động cập nhật sang phần 🏆 Xếp hạng."
+    - Import icons: Camera, X từ lucide-react.
+  - leaderboard-view.tsx:
+    - Thêm `avatar: string | null` vào RankedStaff interface.
+    - Import `getSocket` từ @/lib/socket-client.
+    - useEffect: thêm socket listener `staff:update` → reload() ngay khi admin upload avatar (instant sync từ report sang leaderboard).
+    - PodiumCard (Top 3): avatar circle lớn (w-20/w-24) — nếu có avatar → img object-cover, không thì first-letter uppercase.
+    - Ranking list (rank 4+): avatar circle 36px — cùng logic hiển thị.
+
+Test bằng Agent Browser:
+- Restart dev server để load Prisma client mới (có field avatar).
+- Login admin Khang (PIN 1234) → vào Báo cáo → thấy section "👥 Nhân viên trên ca" với:
+  - 15 avatar circle (1 cho mỗi staff) ✓
+  - Hint text "Bấm vào ảnh tròn..." ✓
+  - Admin thấy camera badge trên mỗi avatar ✓
+- Upload avatar cho Vỹ (id cmvj4at510007q6map81sr786) qua API:
+  - POST /api/staff setAvatar với data:image/png;base64 → response {"ok":true} ✓
+  - DB: Vỹ.avatar = base64 data URL ✓
+  - /api/leaderboard?period=today: Vỹ có avatar=yes, các staff khác avatar=no ✓
+- Reload UI:
+  - Report view: Vỹ có img thay vì first-letter gradient ✓
+  - Leaderboard view: Vỹ (rank #1, crown) có avatar img thật ✓
+- Test clearAvatar qua API: response {"ok":true}, Vỹ.avatar = null ✓ (reset để user tự upload ảnh thật)
+
+Stage Summary:
+- ✅ Admin có thể upload avatar cho từng nhân viên ngay trong phần "👥 Nhân viên trên ca" — bấm vào ảnh tròn → chọn file → ảnh tự cover-crop 256×256 → lưu.
+- ✅ Avatar tự động đồng bộ sang "🏆 Xếp hạng" ngay lập tức qua socket event `staff:update` (không cần reload).
+- ✅ Avatar hiển thị ở cả 2 nơi: Podium Top 3 (lớn) + Ranking list (nhỏ).
+- ✅ Admin có thể gỡ avatar bằng nút X (đỏ, góc trên phải) → clearAvatar API.
+- ✅ Non-admin (staff) xem avatar nhưng không thấy camera/X badge (read-only).
+- ✅ Fallback: chưa upload → first-letter gradient circle (giữ nguyên UX cũ).
+- ✅ Lint PASS, dev server chạy ổn định, schema đã push, Prisma client regenerated.
+- DB clean state: Vỹ.avatar = null (đã clear test) — user có thể tự upload ảnh thật.

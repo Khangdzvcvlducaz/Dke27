@@ -24,6 +24,7 @@ export async function GET() {
         view: s.view,
         onShift: s.onShift,
         notifyEnabled: s.notifyEnabled,
+        avatar: s.avatar,
         hasSubscription: s._count.subscriptions > 0,
         subscriptionCount: s._count.subscriptions,
         lastLogin: s.lastLogin,

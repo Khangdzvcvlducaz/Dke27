@@ -13,6 +13,7 @@ export async function GET() {
         name: s.name,
         view: s.view,
         hasPin: !!s.pinHash,
+        avatar: s.avatar,
         lastLogin: s.lastLogin,
         loginCount: s.loginCount,
       })),
@@ -61,6 +62,25 @@ export async function POST(req: NextRequest) {
     if (action === 'delete') {
       const { id } = body
       await db.staff.deleteMany({ where: { id } })
+      return NextResponse.json({ ok: true })
+    }
+
+    // Upload / replace staff avatar — admin uploads photo, stored as base64 data URL.
+    // Avatar is shown in the on-shift staff list AND the leaderboard.
+    if (action === 'setAvatar') {
+      const { id, avatar } = body
+      if (!id) return NextResponse.json({ error: 'Thiếu id' }, { status: 400 })
+      if (avatar && avatar.length > 2500000) {
+        return NextResponse.json({ error: 'Ảnh quá lớn (tối đa ~2.5MB)' }, { status: 400 })
+      }
+      await db.staff.update({ where: { id }, data: { avatar: avatar || null } })
+      return NextResponse.json({ ok: true })
+    }
+
+    if (action === 'clearAvatar') {
+      const { id } = body
+      if (!id) return NextResponse.json({ error: 'Thiếu id' }, { status: 400 })
+      await db.staff.update({ where: { id }, data: { avatar: null } })
       return NextResponse.json({ ok: true })
     }
 

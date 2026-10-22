@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell, LineChart, Line, Legend } from 'recharts'
-import { Download, Plus, Trash2, Pencil, Banknote, Landmark, TrendingUp, Coffee, Clock, AlertTriangle } from 'lucide-react'
+import { Download, Plus, Trash2, Pencil, Banknote, Landmark, TrendingUp, Coffee, Clock, AlertTriangle, Camera, X } from 'lucide-react'
 import { broadcastStaffUpdate } from '@/lib/socket-client'
 import { StaffSheet } from '@/components/staff-sheet'
 
@@ -408,12 +408,14 @@ function MembersSection({ data }: { data: ReportData }) {
  * Lets manager manually assign orders that didn't get accepted via push.
  */
 function OnShiftStaffSection() {
+  const user = useCafeStore((s) => s.user)
   const [staff, setStaff] = useState<{
     id: string
     name: string
     view: string
     onShift: boolean
     notifyEnabled: boolean
+    avatar: string | null
     hasSubscription: boolean
     subscriptionCount: number
   }[]>([])
@@ -456,6 +458,68 @@ function OnShiftStaffSection() {
     }
   }
 
+  // Upload / replace staff avatar. Reads file → resizes to 256×256 square
+  // (cover crop) on a canvas → PNG data URL → POST /api/staff setAvatar.
+  // Avatar then shows up on the leaderboard too (same DB field).
+  async function uploadAvatar(file: File, staffId: string, staffName: string) {
+    try {
+      const reader = new FileReader()
+      reader.onload = async () => {
+        const img = new Image()
+        img.onload = async () => {
+          // Square cover-crop to 256×256
+          const SIZE = 256
+          const side = Math.min(img.width, img.height)
+          const sx = (img.width - side) / 2
+          const sy = (img.height - side) / 2
+          const cv = document.createElement('canvas')
+          cv.width = SIZE
+          cv.height = SIZE
+          const ctx = cv.getContext('2d')!
+          ctx.drawImage(img, sx, sy, side, side, 0, 0, SIZE, SIZE)
+          const data = cv.toDataURL('image/png')
+          if (data.length > 2500000) {
+            toast.error('Ảnh quá lớn — chọn ảnh nhỏ hơn')
+            return
+          }
+          const r = await fetch('/api/staff', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'setAvatar', id: staffId, avatar: data }),
+          })
+          const d = await r.json()
+          if (!r.ok) throw new Error(d.error)
+          broadcastStaffUpdate('cafe')
+          await load()
+          toast.success(`✓ Đã lưu ảnh ${staffName} — Xếp hạng cũng cập nhật`)
+        }
+        img.onerror = () => toast.error('Không đọc được ảnh')
+        img.src = reader.result as string
+      }
+      reader.readAsDataURL(file)
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+
+  async function clearAvatar(staffId: string, staffName: string) {
+    if (!confirm(`Gỡ ảnh ${staffName}?`)) return
+    try {
+      const r = await fetch('/api/staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clearAvatar', id: staffId }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error)
+      broadcastStaffUpdate('cafe')
+      await load()
+      toast.success(`Đã gỡ ảnh ${staffName}`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+
   async function assign(orderId: string, staffName: string) {
     try {
       const r = await fetch('/api/orders/assign', {
@@ -481,11 +545,14 @@ function OnShiftStaffSection() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          <p className="text-xs text-muted-foreground mb-3">
+            Bấm vào ảnh tròn để tải ảnh đại diện lên — ảnh tự động cập nhật sang phần <b>🏆 Xếp hạng</b>.
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {staff.map((s) => (
               <div
                 key={s.id}
-                className={`rounded-xl border p-3 flex items-center gap-2 ${
+                className={`rounded-xl border p-3 flex items-center gap-3 ${
                   s.onShift && s.hasSubscription
                     ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20'
                     : s.onShift
@@ -493,6 +560,47 @@ function OnShiftStaffSection() {
                     : 'border-border bg-card'
                 }`}
               >
+                {/* Avatar — click to upload (admin only). Falls back to first-letter circle. */}
+                <div className="relative shrink-0 group">
+                  <label className="block cursor-pointer" title={user?.role === 'admin' ? `Tải ảnh cho ${s.name}` : ''}>
+                    <div className={`w-12 h-12 rounded-full overflow-hidden flex items-center justify-center bg-gradient-to-br ${s.view === 'kitchen' ? 'from-orange-400 to-red-500' : s.view === 'pay' ? 'from-emerald-400 to-teal-600' : s.view === 'report' ? 'from-violet-400 to-purple-600' : 'from-sky-400 to-blue-600'} ${user?.role === 'admin' ? 'ring-2 ring-white/60 dark:ring-card hover:ring-primary' : ''}`}>
+                      {s.avatar ? (
+                        <img src={s.avatar} alt={s.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-white text-base font-bold" style={{ fontFamily: 'var(--font-oswald)' }}>
+                          {s.name.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                    {user?.role === 'admin' && (
+                      <div className="absolute -bottom-0.5 -right-0.5 bg-primary text-primary-foreground rounded-full p-1 shadow-md">
+                        <Camera className="size-3" />
+                      </div>
+                    )}
+                    {user?.role === 'admin' && (
+                      <input
+                        type="file"
+                        accept="image/*"
+                        hidden
+                        onChange={(e) => {
+                          const f = e.target.files?.[0]
+                          if (f) void uploadAvatar(f, s.id, s.name)
+                          e.target.value = ''
+                        }}
+                      />
+                    )}
+                  </label>
+                  {user?.role === 'admin' && s.avatar && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); void clearAvatar(s.id, s.name) }}
+                      className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 shadow-md hover:scale-110 transition"
+                      title={`Gỡ ảnh ${s.name}`}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  )}
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-bold flex items-center gap-1.5 flex-wrap">
                     {s.name}

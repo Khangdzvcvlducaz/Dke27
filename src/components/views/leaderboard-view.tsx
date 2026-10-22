@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import { fmtVND } from '@/lib/format'
 import { useCafeStore } from '@/store/cafe-store'
+import { getSocket } from '@/lib/socket-client'
 import { Crown, ChevronDown, ChevronUp } from 'lucide-react'
 
 interface RankedStaff {
@@ -13,6 +14,7 @@ interface RankedStaff {
   breakdown: { action: string; pts: number; count: number }[]
   role: string
   view: string
+  avatar: string | null
 }
 
 const PERIODS = [
@@ -31,7 +33,15 @@ export function LeaderboardView() {
   useEffect(() => {
     void load()
     const t = setInterval(load, 30000)
-    return () => clearInterval(t)
+    // Instant refresh when staff data changes (e.g. admin uploads avatar
+    // in the report view → broadcastStaffUpdate('cafe') fires here → reload).
+    const socket = getSocket('cafe')
+    const onStaffUpdate = () => void load()
+    socket.on('staff:update', onStaffUpdate)
+    return () => {
+      clearInterval(t)
+      socket.off('staff:update', onStaffUpdate)
+    }
   }, [period])
 
   async function load() {
@@ -124,9 +134,13 @@ export function LeaderboardView() {
                         <span className="text-sm font-bold text-muted-foreground w-5 text-center" style={{ fontFamily: 'var(--font-oswald)' }}>
                           {rank}
                         </span>
-                        {/* Avatar circle */}
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shrink-0">
-                          <span className="text-white text-xs font-bold">{s.name.charAt(0)}</span>
+                        {/* Avatar circle — real photo if uploaded, else first-letter gradient */}
+                        <div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center shrink-0 bg-gradient-to-br from-amber-400 to-amber-600">
+                          {s.avatar ? (
+                            <img src={s.avatar} alt={s.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-white text-xs font-bold">{s.name.charAt(0).toUpperCase()}</span>
+                          )}
                         </div>
                         <span className="flex-1 text-sm font-semibold truncate">{s.name}</span>
                         {isMe && <span className="bg-primary text-primary-foreground text-[10px] px-1.5 rounded-full shrink-0">Bạn</span>}
@@ -219,13 +233,17 @@ function PodiumCard({ staff, rank, maxPoints, isMe }: { staff: RankedStaff; rank
 
       {/* Avatar circle */}
       <div
-        className={`${avatarSize} rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center shadow-lg ${
+        className={`${avatarSize} rounded-full overflow-hidden flex items-center justify-center shadow-lg bg-gradient-to-br ${gradient} ${
           isMe ? 'ring-2 ring-white ring-offset-2 ring-offset-primary' : ''
         } ${crown ? 'glow' : ''}`}
       >
-        <span className="text-white text-lg font-bold" style={{ fontFamily: 'var(--font-oswald)' }}>
-          {staff.name.charAt(0)}
-        </span>
+        {staff.avatar ? (
+          <img src={staff.avatar} alt={staff.name} className="w-full h-full object-cover" />
+        ) : (
+          <span className="text-white text-lg font-bold" style={{ fontFamily: 'var(--font-oswald)' }}>
+            {staff.name.charAt(0).toUpperCase()}
+          </span>
+        )}
       </div>
 
       {/* Name */}
