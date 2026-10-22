@@ -153,6 +153,26 @@ export async function POST(req: NextRequest) {
         status: status || order.status,
       }
       if (status === 'paid') {
+        // 1-đơn-thu-1-lúc rule: pay staff can only collect ONE payment at a time.
+        // Check if they have another payment in the last 2 minutes — if yes, block.
+        if (by) {
+          const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000)
+          const recentPayment = await db.order.findFirst({
+            where: {
+              paidBy: by,
+              status: 'paid',
+              paidAt: { gt: twoMinAgo },
+              id: { not: id },
+            },
+            select: { id: true, code: true },
+          })
+          if (recentPayment) {
+            return NextResponse.json({
+              error: `Bạn vừa thu ${recentPayment.code} — đợi 2 phút hoặc hoàn thành trước khi thu đơn khác.`,
+              recentOrderCode: recentPayment.code,
+            }, { status: 409 })
+          }
+        }
         data.payMethod = payMethod || 'cash'
         data.paidAt = new Date()
         data.paidBy = by || null

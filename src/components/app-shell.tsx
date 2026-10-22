@@ -15,6 +15,7 @@ import { PosView } from '@/components/views/pos-view'
 import { KitchenView } from '@/components/views/kitchen-view'
 import { PayView } from '@/components/views/pay-view'
 import { ReportView } from '@/components/views/report-view'
+import { LeaderboardView } from '@/components/views/leaderboard-view'
 import { MenuManagerView } from '@/components/views/menu-manager-view'
 import { AiChatSheet } from '@/components/ai-chat-sheet'
 import { CartSheet } from '@/components/cart-sheet'
@@ -328,10 +329,10 @@ export function AppShell() {
     if (typeof window === 'undefined') return
     const url = new URL(window.location.href)
     const openView = url.searchParams.get('open')
-    if (openView && ['pos', 'kitchen', 'pay', 'report', 'menu'].includes(openView)) {
+    if (openView && ['pos', 'kitchen', 'pay', 'report', 'leaderboard', 'menu'].includes(openView)) {
       const allowedViews = user?.role === 'admin'
-        ? ['pos', 'kitchen', 'pay', 'report', 'menu']
-        : [user?.view || 'pos']
+        ? ['pos', 'kitchen', 'pay', 'report', 'leaderboard', 'menu']
+        : [user?.view || 'pos', 'leaderboard']
       if (allowedViews.includes(openView)) {
         setCurrentView(openView)
       }
@@ -383,7 +384,7 @@ export function AppShell() {
   if (!user) return null
 
   const isAdmin = user.role === 'admin'
-  const allowedView: string[] = isAdmin ? ['pos', 'kitchen', 'pay', 'report', 'menu'] : [user.view || 'pos']
+  const allowedView: string[] = isAdmin ? ['pos', 'kitchen', 'pay', 'report', 'leaderboard', 'menu'] : [user.view || 'pos', 'leaderboard']
   // Report view is accessible to: admin + staff with view='report'
   // But staff with view='report' should NOT see the full admin report
   // (they see the same report page — it's read-only for them)
@@ -478,6 +479,7 @@ export function AppShell() {
             {activeView === 'kitchen' && <KitchenView />}
             {activeView === 'pay' && <PayView />}
             {activeView === 'report' && isAdmin && <ReportView />}
+            {activeView === 'leaderboard' && <LeaderboardView />}
             {activeView === 'menu' && isAdmin && <MenuManagerView />}
           </motion.div>
         </AnimatePresence>

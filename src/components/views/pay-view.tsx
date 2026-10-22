@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { getSocket, broadcastOrderUpdate } from '@/lib/socket-client'
 import { QrPaymentSheet } from '@/components/qr-payment-sheet'
-import { Printer, Banknote, Landmark, Volume2 } from 'lucide-react'
+import { Printer, Banknote, Landmark, Volume2, Clock } from 'lucide-react'
 import type { OrderDTO } from './kitchen-view'
 
 export function PayView() {
@@ -17,6 +17,10 @@ export function PayView() {
   const [orders, setOrders] = useState<OrderDTO[]>([])
   const [loading, setLoading] = useState(true)
   const [qrOpen, setQrOpen] = useState(false)
+  // 1-đơn-thu-1-lúc: after collecting payment, disable pay buttons for 2 minutes
+  const [collectingUntil, setCollectingUntil] = useState(0)
+  const isCollecting = Date.now() < collectingUntil
+  const collectRemaining = Math.max(0, Math.ceil((collectingUntil - Date.now()) / 1000))
   const [qrOrder, setQrOrder] = useState<OrderDTO | null>(null)
 
   useEffect(() => {
@@ -107,9 +111,16 @@ export function PayView() {
         body: JSON.stringify({ action: 'update', id, status: 'paid', payMethod: method, by: user?.name }),
       })
       const d = await r.json()
-      if (!r.ok) throw new Error(d.error)
+      if (!r.ok) {
+        if (r.status === 409 && d.recentOrderCode) {
+          toast.error(d.error || `Bạn đang thu ${d.recentOrderCode} — đợi 2 phút`)
+          return
+        }
+        throw new Error(d.error)
+      }
       broadcastOrderUpdate('cafe', d.order)
       setOrders((list) => list.filter((x) => x.id !== id))
+      setCollectingUntil(Date.now() + 2 * 60 * 1000)
       toast.success(`💰 ${user?.name} đã thu ${fmtVND(d.order.total)} (${method === 'cash' ? 'tiền mặt' : 'chuyển khoản'})`)
     } catch (e) {
       toast.error((e as Error).message)
@@ -197,6 +208,20 @@ export function PayView() {
         </CardContent></Card>
       ) : (
         <div className="space-y-3">
+          {/* 1-đơn-thu-1-lúc banner */}
+          {isCollecting && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 rounded-2xl p-3 flex items-center gap-3"
+            >
+              <Clock className="size-5 text-amber-600 shrink-0" />
+              <div className="text-sm">
+                <b className="text-amber-900 dark:text-amber-100">Đang thu đơn — chờ {collectRemaining}s</b>
+                <p className="text-xs text-amber-800 dark:text-amber-200 mt-0.5">Mỗi lần chỉ thu 1 đơn. Đợi 2 phút để thu đơn tiếp theo.</p>
+              </div>
+            </motion.div>
+          )}
           <AnimatePresence>
             {orders.map((o) => (
               <motion.div
@@ -205,7 +230,7 @@ export function PayView() {
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-card border border-border rounded-2xl p-3 shadow-sm"
+                className={`bg-card border rounded-2xl p-3 shadow-sm ${isCollecting ? 'border-border opacity-60' : 'border-border'}`}
               >
                 <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap mb-1.5">
                   <b className="bg-primary text-primary-foreground px-2 py-0.5 rounded-md text-sm" style={{ fontFamily: 'var(--font-oswald)' }}>{o.code}</b>
@@ -224,13 +249,13 @@ export function PayView() {
                   {o.discount > 0 && <span className="text-xs text-muted-foreground ml-2">(đã giảm {fmtVND(o.discount)})</span>}
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => printReceipt(o)} className="border-border">
+                  <Button size="sm" variant="outline" onClick={() => printReceipt(o)} className="border-border" disabled={isCollecting}>
                     <Printer className="size-3.5 mr-1" /> In bill
                   </Button>
-                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 btn-push flex-1" onClick={() => pay('cash', o.id)}>
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 btn-push flex-1" onClick={() => pay('cash', o.id)} disabled={isCollecting}>
                     <Banknote className="size-3.5 mr-1" /> Tiền mặt
                   </Button>
-                  <Button size="sm" className="btn-push flex-1" onClick={() => openQrSheet(o)}>
+                  <Button size="sm" className="btn-push flex-1" onClick={() => openQrSheet(o)} disabled={isCollecting}>
                     <Landmark className="size-3.5 mr-1" /> Chuyển khoản
                   </Button>
                 </div>

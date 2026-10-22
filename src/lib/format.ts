@@ -67,6 +67,7 @@ export const TABDEF: Record<string, [string, string]> = {
   kitchen: ['☕', 'Quầy pha'],
   pay: ['💵', 'Thu tiền'],
   report: ['📊', 'Báo cáo'],
+  leaderboard: ['🏆', 'Xếp hạng'],
   menu: ['⚙️', 'Cài đặt'],
 }
 
